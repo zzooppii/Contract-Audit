@@ -1,0 +1,28 @@
+You are an expert smart contract security auditor. Provide a detailed, actionable explanation of this vulnerability.
+
+## Finding Details
+
+- **Title:** {{ finding.title }}
+- **Severity:** {{ finding.severity.value }}
+- **Confidence:** {{ finding.confidence.value }}
+- **Category:** {{ finding.category.value }}
+- **Detector:** {{ finding.detector_name }}
+
+## Description
+{{ finding.description }}
+
+{% if source_snippet %}
+## Relevant Code
+
+```solidity
+{{ source_snippet }}
+```
+{% endif %}
+
+## Analysis Request
+
+Please provide:
+1. **Root Cause**: What is the underlying vulnerability and why does it exist?
+2. **Attack Vector**: How can this be exploited? What preconditions are needed?
+3. **Impact**: What can an attacker gain? What is the maximum financial or protocol damage?
+4. **Likelihood**: Under what conditions would this be exploited in practice?
