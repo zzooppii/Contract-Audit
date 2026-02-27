@@ -1,0 +1,118 @@
+name: Smart Contract Audit
+
+on:
+  pull_request:
+    paths:
+      - '**/*.sol'
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '**/*.sol'
+  workflow_dispatch:
+    inputs:
+      contracts_path:
+        description: 'Path to contracts directory'
+        required: false
+        default: './src'
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  audit:
+    name: Run Smart Contract Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for diff filtering
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install contract-audit
+        run: |
+          pip install contract-audit
+          # Verify installation
+          contract-audit version
+
+      - name: Install Aderyn (optional)
+        continue-on-error: true
+        run: |
+          curl -L https://raw.githubusercontent.com/Cyfrin/aderyn/master/scripts/install.sh | bash
+          echo "$HOME/.aderyn/bin" >> $GITHUB_PATH
+
+      - name: Run Audit
+        id: audit
+        run: |
+          CONTRACTS_PATH="${{ github.event.inputs.contracts_path || './src' }}"
+
+          contract-audit audit "$CONTRACTS_PATH" \
+            --config audit.toml \
+            --output-sarif audit-results.sarif \
+            --output-markdown audit-results.md \
+            --output-json audit-results.json \
+            --ci-mode \
+            --verbose
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_AI_API_KEY: ${{ secrets.GOOGLE_AI_API_KEY }}
+        continue-on-error: true  # Don't fail the step, check exit code separately
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: audit-results.sarif
+          category: smart-contract-audit
+
+      - name: Upload audit artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit-results
+          path: |
+            audit-results.sarif
+            audit-results.md
+            audit-results.json
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        run: |
+          if [ -f audit-results.md ]; then
+            gh pr comment ${{ github.event.pull_request.number }} \
+              --body-file audit-results.md \
+              --edit-last || \
+            gh pr comment ${{ github.event.pull_request.number }} \
+              --body-file audit-results.md
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Check audit exit code
+        run: |
+          # Re-run in check mode to get proper exit code
+          contract-audit audit "${CONTRACTS_PATH}" \
+            --config audit.toml \
+            --ci-mode \
+            --no-llm  # Skip LLM in exit code check (already done)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CONTRACTS_PATH: ${{ github.event.inputs.contracts_path || './src' }}
