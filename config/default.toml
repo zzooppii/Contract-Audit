@@ -1,0 +1,65 @@
+[project]
+name = "My Protocol"
+solidity_version = "auto"
+contracts_dir = "./src"
+exclude_patterns = ["**/test/**", "**/mock/**", "**/script/**", "**/lib/**"]
+
+[analyzers]
+ast_parser = true
+slither = true
+aderyn = true
+foundry_fuzz = false          # Opt-in (requires test suite)
+symbolic = false              # Opt-in (requires hevm/mythril)
+
+[detectors]
+proxy = true
+flash_loan = true
+storage_collision = true
+gas_griefing = true
+
+[detectors.oracle]
+enabled = true
+max_staleness_seconds = 3600
+oracle_interfaces = ["AggregatorV3Interface", "IUniswapV3Pool", "IUniswapV2Pair"]
+
+[detectors.governance]
+enabled = true
+min_quorum_threshold = 0.04
+min_timelock_seconds = 86400
+
+[scoring.severity_scores]
+critical = 10.0
+high = 7.5
+medium = 5.0
+low = 2.5
+informational = 1.0
+gas = 0.5
+
+[llm]
+enabled = true
+max_budget_usd = 10.0
+
+[llm.providers.anthropic]
+auth_method = "api_key"                    # "oauth" or "api_key"
+api_key_env = "ANTHROPIC_API_KEY"          # Fallback for CI
+
+[llm.providers.google]
+auth_method = "api_key"                    # "oauth" or "api_key"
+api_key_env = "GOOGLE_AI_API_KEY"          # Fallback for CI
+
+[llm.task_routing]
+triage = { provider = "google", model = "gemini-3-flash" }
+explain = { provider = "google", model = "gemini-3.1-pro" }
+remediate = { provider = "google", model = "gemini-3.1-pro" }
+poc_generate = { provider = "anthropic", model = "claude-opus-4" }
+summarize = { provider = "google", model = "gemini-3.1-pro" }
+
+[reporting]
+formats = ["sarif", "json", "markdown"]
+output_dir = "./audit-results"
+
+[ci]
+fail_on_critical = true
+fail_on_high = false
+sarif_upload = true
+pr_comment = true
