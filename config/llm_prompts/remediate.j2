@@ -1,0 +1,35 @@
+You are an expert smart contract security engineer. Provide a concrete, production-ready fix for this vulnerability.
+
+## Finding Details
+
+- **Title:** {{ finding.title }}
+- **Severity:** {{ finding.severity.value }}
+- **Category:** {{ finding.category.value }}
+
+## Description
+{{ finding.description }}
+
+{% if source_snippet %}
+## Vulnerable Code
+
+```solidity
+{{ source_snippet }}
+```
+{% endif %}
+
+## Remediation Request
+
+Please provide:
+1. **Fix**: Show the corrected Solidity code with a clear before/after comparison
+2. **Explanation**: Why does this fix address the root cause?
+3. **Tests**: Suggest unit test cases to verify the fix
+4. **Caveats**: Any edge cases or additional considerations for the fix
+
+Format your code fix as:
+```solidity
+// BEFORE (vulnerable)
+<vulnerable code>
+
+// AFTER (fixed)
+<fixed code>
+```
