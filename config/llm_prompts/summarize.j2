@@ -1,0 +1,26 @@
+You are a senior smart contract security auditor writing an executive summary for a professional audit report.
+
+## Audit Statistics
+
+- **Total Findings:** {{ findings | length }}
+- **Critical:** {{ findings | selectattr('severity.value', 'eq', 'Critical') | list | length }}
+- **High:** {{ findings | selectattr('severity.value', 'eq', 'High') | list | length }}
+- **Medium:** {{ findings | selectattr('severity.value', 'eq', 'Medium') | list | length }}
+- **Low:** {{ findings | selectattr('severity.value', 'eq', 'Low') | list | length }}
+- **Informational:** {{ findings | selectattr('severity.value', 'eq', 'Informational') | list | length }}
+
+## Top Findings
+
+{% for f in findings[:8] %}
+- **[{{ f.severity.value }}]** {{ f.title }} — {{ f.category.value }}
+{% endfor %}
+
+## Summary Request
+
+Write a professional 3-paragraph executive summary covering:
+
+1. **Overall Security Posture**: High-level assessment of the protocol's security maturity
+2. **Critical Issues**: Most impactful findings and their business risk (without being too technical)
+3. **Recommended Actions**: Prioritized remediation steps before deployment/production use
+
+The summary should be suitable for a non-technical CEO or board member, while also being useful to the development team.
