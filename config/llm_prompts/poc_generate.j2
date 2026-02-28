@@ -1,0 +1,31 @@
+You are an expert smart contract security researcher. Generate a complete, runnable Foundry PoC test demonstrating this vulnerability.
+
+## Finding Details
+
+- **Title:** {{ finding.title }}
+- **Severity:** {{ finding.severity.value }}
+- **Category:** {{ finding.category.value }}
+- **Locations:** {{ finding.locations | map(attribute='file') | join(', ') }}
+
+## Description
+{{ finding.description }}
+
+{% if source_snippet %}
+## Vulnerable Code
+
+```solidity
+{{ source_snippet }}
+```
+{% endif %}
+
+## PoC Requirements
+
+Generate a complete `test/exploits/ExploitTest.t.sol` file that:
+1. Imports necessary dependencies (forge-std/Test.sol, the vulnerable contract)
+2. Sets up the exploit environment with `setUp()`
+3. Implements the attack in a `testExploit_{{ finding.detector_name | replace('-', '_') }}()` function
+4. Uses `vm.startPrank()`, `deal()`, `vm.expectRevert()` etc. as appropriate
+5. Asserts that the vulnerability is triggered with clear error messages
+6. Includes comments explaining each exploit step
+
+The PoC should be realistic and runnable with `forge test --match-test testExploit`.
