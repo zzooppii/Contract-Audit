@@ -1,0 +1,1 @@
+"""Slither static analysis integration."""
