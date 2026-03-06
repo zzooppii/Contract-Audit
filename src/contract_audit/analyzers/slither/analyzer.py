@@ -57,7 +57,7 @@ class SlitherAnalyzer:
         """Synchronous Slither execution (called from thread pool)."""
         findings: list[Finding] = []
 
-        target = str(context.project_path)
+        target = context.project_path
 
         # Build solc options
         slither_kwargs: dict[str, Any] = {
@@ -67,43 +67,66 @@ class SlitherAnalyzer:
         if context.config.solidity_version != "auto":
             slither_kwargs["solc_args"] = f"--version {context.config.solidity_version}"
 
-        try:
-            slither = Slither(target, **slither_kwargs)
-            context.slither_instance = slither
+        # Determine targets: if directory without a compilation framework,
+        # analyze each .sol file individually.
+        targets = self._resolve_targets(target)
 
-            # Load custom detectors
-            custom_detectors = self._get_custom_detectors()
+        for sol_target in targets:
+            try:
+                slither = Slither(str(sol_target), **slither_kwargs)
 
-            # Run all detectors
-            for detector_cls in custom_detectors:
-                try:
-                    detector_instance = detector_cls(
-                        slither,
-                        slither.logger,
-                        slither.config,
-                        slither.logger,
-                    )
-                    results = detector_instance.detect()
-                    for r in results:
-                        finding = map_slither_result(r, source_name=f"slither:{detector_cls.ARGUMENT}")
+                # Store last instance for downstream use
+                context.slither_instance = slither
+
+                # Register built-in detectors
+                self._register_builtin_detectors(slither)
+
+                # Register custom detectors
+                for detector_cls in self._get_custom_detectors():
+                    try:
+                        slither.register_detector(detector_cls)
+                    except Exception as e:
+                        logger.debug(f"Failed to register custom detector {detector_cls}: {e}")
+
+                # Run all registered detectors
+                results = slither.run_detectors()
+                for result_group in results:
+                    for r in result_group:
+                        finding = map_slither_result(r)
                         if finding:
                             findings.append(finding)
-                except Exception as e:
-                    logger.warning(f"Custom detector {detector_cls} failed: {e}")
 
-            # Run built-in detectors
-            slither.run_detectors()
-            for result_group in slither.detectors_results:
-                for r in result_group:
-                    finding = map_slither_result(r)
-                    if finding:
-                        findings.append(finding)
+            except Exception as e:
+                logger.error(f"Slither failed on {sol_target}: {e}")
 
-            logger.info(f"Slither found {len(findings)} findings")
-        except Exception as e:
-            logger.error(f"Slither instantiation failed: {e}")
-
+        logger.info(f"Slither found {len(findings)} findings")
         return findings
+
+    def _resolve_targets(self, target: Path) -> list[Path]:
+        """Resolve analysis targets. If the path is a directory with a build
+        framework (foundry.toml, hardhat.config.*), return the directory itself.
+        Otherwise, return individual .sol files found recursively."""
+        if target.is_file():
+            return [target]
+
+        # Check for compilation framework config files
+        framework_markers = [
+            "foundry.toml", "hardhat.config.js", "hardhat.config.ts",
+            "brownie-config.yaml", "truffle-config.js",
+        ]
+        for marker in framework_markers:
+            if (target / marker).exists():
+                logger.info(f"Detected build framework ({marker}), passing directory to Slither")
+                return [target]
+
+        # No framework — collect individual .sol files
+        sol_files = sorted(target.rglob("*.sol"))
+        if not sol_files:
+            logger.warning(f"No .sol files found in {target}")
+            return []
+
+        logger.info(f"No build framework detected, analyzing {len(sol_files)} .sol files individually")
+        return sol_files
 
     def _get_custom_detectors(self) -> list[type]:
         """Return list of custom detector classes to register."""
