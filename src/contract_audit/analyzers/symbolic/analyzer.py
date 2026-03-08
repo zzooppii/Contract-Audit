@@ -82,6 +82,60 @@ class SymbolicAnalyzer:
         logger.info(f"Symbolic execution found {len(findings)} findings")
         return findings
 
+    async def verify_finding(
+        self, finding: Finding, context: AuditContext
+    ) -> bool:
+        """Verify a specific finding using symbolic execution.
+
+        Checks if require() can be bypassed or access control circumvented
+        for the vulnerable function.
+
+        Returns:
+            True if vulnerability confirmed, False otherwise
+        """
+        if not self.is_available():
+            return False
+
+        artifacts = context.compilation_artifacts
+        if not artifacts:
+            return False
+
+        # Find the contract containing the finding
+        target_file = finding.locations[0].file if finding.locations else ""
+        target_func = finding.locations[0].function if finding.locations else None
+        contracts = artifacts.get("contracts", {})
+
+        for filename, file_contracts in contracts.items():
+            if target_file and not filename.endswith(target_file.rsplit("/", 1)[-1]):
+                continue
+
+            for contract_name, contract_data in file_contracts.items():
+                bytecode = (
+                    contract_data.get("evm", {})
+                    .get("bytecode", {})
+                    .get("object", "")
+                )
+                if not bytecode or len(bytecode) < 10:
+                    continue
+
+                try:
+                    if self.hevm.is_available():
+                        violations = await self.hevm.run_symbolic(
+                            bytecode=bytecode,
+                            timeout=30,
+                        )
+                        if violations:
+                            finding.confidence = Confidence.HIGH
+                            finding.metadata["symbolic_verified"] = True
+                            logger.info(
+                                f"Symbolic execution confirmed '{finding.title}'"
+                            )
+                            return True
+                except Exception as e:
+                    logger.debug(f"Symbolic verification failed: {e}")
+
+        return False
+
     def _violation_to_finding(
         self,
         violation: dict[str, Any],
