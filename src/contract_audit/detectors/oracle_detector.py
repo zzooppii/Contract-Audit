@@ -83,11 +83,13 @@ class OracleDetector:
                     # Skip function declarations (not calls)
                     if re.search(r'\bfunction\s+\w', line):
                         continue
-                    # Look at enclosing function body (tighter window)
+                    # Look at enclosing function body (strip comments first)
                     func_body = self._extract_function_body(lines, i - 1)
+                    func_code = re.sub(r'//.*$', '', func_body, flags=re.MULTILINE)
+                    func_code = re.sub(r'/\*.*?\*/', '', func_code, flags=re.DOTALL)
 
                     has_staleness = any(
-                        indicator in func_body for indicator in STALENESS_INDICATORS
+                        indicator in func_code for indicator in STALENESS_INDICATORS
                     )
 
                     if not has_staleness:
@@ -223,7 +225,9 @@ class OracleDetector:
         for i, line in enumerate(lines, 1):
             if "latestRoundData" in line and not re.search(r'\bfunction\s+\w', line):
                 func_body = self._extract_function_body(lines, i - 1)
-                has_round_check = "answeredInRound" in func_body
+                func_code = re.sub(r'//.*$', '', func_body, flags=re.MULTILINE)
+                func_code = re.sub(r'/\*.*?\*/', '', func_code, flags=re.DOTALL)
+                has_round_check = "answeredInRound" in func_code
 
                 if not has_round_check:
                     findings.append(

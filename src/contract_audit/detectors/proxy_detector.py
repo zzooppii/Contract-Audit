@@ -67,6 +67,7 @@ class ProxyDetector:
             findings.extend(self._check_uups_authorization(filename, source))
             findings.extend(self._check_selector_collision(filename, source))
             findings.extend(self._check_eip1967_compliance(filename, source))
+            findings.extend(self._check_missing_storage_gap(filename, source))
 
         logger.info(f"Proxy detector found {len(findings)} findings")
         return findings
@@ -79,20 +80,31 @@ class ProxyDetector:
         for i, line in enumerate(lines, 1):
             for pattern in INITIALIZER_PATTERNS:
                 if re.search(rf'\bfunction\s+{pattern}\b', line):
-                    # Check if modifier is present
+                    # Get context and strip comments before checking
                     context_block = "\n".join(lines[max(0, i-1):min(len(lines), i+5)])
-                    if "initializer" not in context_block and "onlyOwner" not in context_block:
+                    code_only = re.sub(r'//.*$', '', context_block, flags=re.MULTILINE)
+                    code_only = re.sub(r'/\*.*?\*/', '', code_only, flags=re.DOTALL)
+
+                    has_guard = (
+                        "initializer" in code_only
+                        or "onlyOwner" in code_only
+                        or "onlyAdmin" in code_only
+                        or re.search(r'require\s*\(\s*!?\s*initialized', code_only)
+                    )
+                    if not has_guard:
                         findings.append(
                             Finding(
-                                title="Potentially Unprotected Initializer",
+                                title=f"Unprotected Initializer: {pattern}()",
                                 description=(
-                                    f"Function `{pattern}` at line {i} may lack proper "
-                                    "initialization protection. Without an `initializer` modifier, "
-                                    "this function could be called multiple times or by anyone, "
-                                    "allowing an attacker to reinitialize the contract."
+                                    f"`{pattern}()` can be called by anyone without an `initializer` "
+                                    "modifier or re-initialization guard. An attacker can call this "
+                                    "to take ownership of the contract, especially when deployed "
+                                    "behind a proxy.\n\n"
+                                    "**Fix:** Use OpenZeppelin's `initializer` modifier, or add "
+                                    "`require(!initialized)` at the start of the function."
                                 ),
-                                severity=Severity.HIGH,
-                                confidence=Confidence.MEDIUM,
+                                severity=Severity.CRITICAL,
+                                confidence=Confidence.HIGH,
                                 category=FindingCategory.PROXY_VULNERABILITY,
                                 source=self.name,
                                 detector_name="uninitialized-proxy",
@@ -243,6 +255,62 @@ class ProxyDetector:
         return findings
 
 
+    def _check_missing_storage_gap(self, filename: str, source: str) -> list[Finding]:
+        """Check for missing storage gap in upgradeable contracts."""
+        findings = []
+
+        # Only relevant for contracts with upgrade patterns
+        has_upgrade = bool(re.search(
+            r'\bupgradeTo\b|\bupgradeToAndCall\b|\bimplementation\b',
+            source,
+        ))
+        if not has_upgrade:
+            return findings
+
+        # Check for storage gap pattern (strip comments first)
+        code_only = re.sub(r'//.*$', '', source, flags=re.MULTILINE)
+        code_only = re.sub(r'/\*.*?\*/', '', code_only, flags=re.DOTALL)
+        has_gap = bool(re.search(
+            r'__gap|_gap\b|uint256\s*\[\s*\d+\s*\]\s*private',
+            code_only,
+        ))
+
+        if not has_gap:
+            # Find the last state variable for location
+            lines = source.splitlines()
+            last_state_line = 1
+            for i, line in enumerate(lines, 1):
+                # Match state variable declarations (not in functions)
+                if re.search(
+                    r'^\s+(?:mapping|address|uint|int|bool|bytes|string)\b.*\b(?:public|private|internal)\b',
+                    line,
+                ):
+                    last_state_line = i
+
+            findings.append(
+                Finding(
+                    title="Missing Storage Gap for Upgradeable Contract",
+                    description=(
+                        "Upgradeable contract has no storage gap (`uint256[50] private __gap`). "
+                        "When new state variables are added in future upgrades, they will "
+                        "collide with storage slots of inheriting contracts, corrupting data.\n\n"
+                        "**Fix:** Add `uint256[50] private __gap;` at the end of the contract's "
+                        "state variable declarations."
+                    ),
+                    severity=Severity.HIGH,
+                    confidence=Confidence.MEDIUM,
+                    category=FindingCategory.PROXY_VULNERABILITY,
+                    source=self.name,
+                    detector_name="missing-storage-gap",
+                    locations=[
+                        SourceLocation(file=filename, start_line=last_state_line, end_line=last_state_line)
+                    ],
+                )
+            )
+
+        return findings
+
+
 def _is_proxy_contract(source: str) -> bool:
     """Heuristic: check if a contract looks like a proxy."""
     return any(pattern in source for pattern in PROXY_PATTERNS)
@@ -262,7 +330,13 @@ def _normalize_params(params: str) -> str:
 
 
 def _compute_selector(signature: str) -> str:
-    """Compute the 4-byte function selector."""
-    import hashlib
-    h = hashlib.sha3_256(signature.encode()).hexdigest()
+    """Compute the 4-byte function selector using Keccak-256."""
+    from hashlib import sha3_256
+    try:
+        from Crypto.Hash import keccak
+        h = keccak.new(digest_bits=256, data=signature.encode()).hexdigest()
+    except ImportError:
+        # Fallback: use sha3_256 (note: NOT the same as keccak-256,
+        # but acceptable for collision detection purposes)
+        h = sha3_256(signature.encode()).hexdigest()
     return h[:8]
