@@ -16,6 +16,16 @@ proxy = true
 flash_loan = true
 storage_collision = true
 gas_griefing = true
+reentrancy = true
+unchecked_call = true
+nft = true
+bridge = true
+integer = true
+frontrun = true
+initialization = true
+erc4626 = true
+pragma = true
+cross_contract = true
 
 [detectors.oracle]
 enabled = true
@@ -26,6 +36,13 @@ oracle_interfaces = ["AggregatorV3Interface", "IUniswapV3Pool", "IUniswapV2Pair"
 enabled = true
 min_quorum_threshold = 0.04
 min_timelock_seconds = 86400
+
+[detectors.merkle]
+enabled = true
+
+[detectors.timelock]
+enabled = true
+min_delay_seconds = 3600
 
 [scoring.severity_scores]
 critical = 10.0

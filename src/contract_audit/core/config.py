@@ -56,6 +56,7 @@ class LLMConfig(BaseModel):
             "remediate": TaskRoute(provider="google", model="gemini-3.1-pro"),
             "poc_generate": TaskRoute(provider="anthropic", model="claude-opus-4"),
             "summarize": TaskRoute(provider="google", model="gemini-3.1-pro"),
+            "audit": TaskRoute(provider="anthropic", model="claude-opus-4"),
         }
     )
 
@@ -152,6 +153,11 @@ def _parse_config(raw: dict[str, Any]) -> FullConfig:
         nft_detector_enabled=detectors_section.get("nft", True),
         bridge_detector_enabled=detectors_section.get("bridge", True),
         integer_detector_enabled=detectors_section.get("integer", True),
+        frontrun_detector_enabled=detectors_section.get("frontrun", True),
+        initialization_detector_enabled=detectors_section.get("initialization", True),
+        erc4626_detector_enabled=detectors_section.get("erc4626", True),
+        pragma_detector_enabled=detectors_section.get("pragma", True),
+        cross_contract_detector_enabled=detectors_section.get("cross_contract", True),
         oracle_max_staleness_seconds=oracle_cfg.get("max_staleness_seconds", 3600),
         oracle_interfaces=oracle_cfg.get(
             "oracle_interfaces", ["AggregatorV3Interface", "IUniswapV3Pool"]

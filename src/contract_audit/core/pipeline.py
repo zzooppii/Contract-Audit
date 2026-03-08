@@ -70,11 +70,18 @@ class PipelineOrchestrator:
             elif isinstance(result, list):
                 all_findings.extend(result)
 
+        # Phase 3.5: LLM-based direct audit (optional)
+        if self.llm_router and context.config.llm_enabled:
+            logger.info("Phase 3.5: LLM direct audit...")
+            all_findings.extend(
+                await self._phase_llm_audit(context)
+            )
+
         # Phase 4: Dynamic analysis (optional)
         if context.config.foundry_fuzz_enabled or context.config.symbolic_enabled:
             logger.info("Phase 4: Running dynamic analysis...")
             all_findings.extend(
-                await self._phase_dynamic(context)
+                await self._phase_dynamic(context, existing_findings=all_findings)
             )
 
         # Deduplicate and correlate
@@ -198,8 +205,10 @@ class PipelineOrchestrator:
             logger.error(f"Detector {getattr(detector, 'name', '?')} failed: {e}")
             return []
 
-    async def _phase_dynamic(self, context: AuditContext) -> list[Finding]:
-        """Phase 4: Optional dynamic analysis."""
+    async def _phase_dynamic(
+        self, context: AuditContext, existing_findings: list[Finding] | None = None,
+    ) -> list[Finding]:
+        """Phase 4: Optional dynamic analysis with targeted harness generation."""
         findings = []
         tasks = []
 
@@ -210,10 +219,44 @@ class PipelineOrchestrator:
             except ImportError:
                 logger.debug("Foundry analyzer not available")
 
+            # Generate targeted harnesses for HIGH/CRITICAL findings
+            if existing_findings:
+                try:
+                    from ..analyzers.foundry.harness_generator import generate_targeted_harness
+                    from ..core.models import Severity
+
+                    test_dir = context.project_path / "test" / "audit_targeted"
+                    for finding in existing_findings:
+                        if finding.severity in (Severity.CRITICAL, Severity.HIGH):
+                            if finding.locations and finding.locations[0].contract:
+                                try:
+                                    generate_targeted_harness(
+                                        finding.locations[0].contract,
+                                        finding,
+                                        context.contract_sources.get(
+                                            finding.locations[0].file, ""
+                                        ),
+                                        test_dir,
+                                    )
+                                except Exception as e:
+                                    logger.debug(f"Targeted harness failed: {e}")
+                except ImportError:
+                    logger.debug("Harness generator not available")
+
         if context.config.symbolic_enabled:
             try:
                 from ..analyzers.symbolic.analyzer import SymbolicAnalyzer
-                tasks.append(SymbolicAnalyzer().analyze(context))
+                symbolic = SymbolicAnalyzer()
+                tasks.append(symbolic.analyze(context))
+
+                # Verify existing HIGH/CRITICAL findings with symbolic execution
+                if existing_findings:
+                    for finding in existing_findings:
+                        if finding.severity in (Severity.CRITICAL, Severity.HIGH):
+                            try:
+                                await symbolic.verify_finding(finding, context)
+                            except Exception:
+                                pass
             except ImportError:
                 logger.debug("Symbolic analyzer not available")
 
@@ -224,6 +267,33 @@ class PipelineOrchestrator:
                     findings.extend(r)
                 elif isinstance(r, Exception):
                     logger.warning(f"Dynamic analysis error: {r}")
+
+        return findings
+
+    async def _phase_llm_audit(self, context: AuditContext) -> list[Finding]:
+        """Phase 3.5: Use LLM to directly audit contracts for business logic flaws."""
+        if not self.llm_router:
+            return []
+
+        findings: list[Finding] = []
+
+        try:
+            from ..llm.tasks.audit_task import AuditTask
+            audit_task = AuditTask(self.llm_router)
+
+            for filename, source in context.contract_sources.items():
+                try:
+                    llm_findings = await audit_task.run(source, filename)
+                    findings.extend(llm_findings)
+                    logger.info(f"LLM audit of {filename}: {len(llm_findings)} findings")
+                except Exception as e:
+                    error_str = str(e)
+                    if "budget" in error_str.lower():
+                        logger.warning("LLM budget exhausted during audit phase")
+                        break
+                    logger.warning(f"LLM audit failed for {filename}: {e}")
+        except ImportError:
+            logger.debug("LLM audit task not available")
 
         return findings
 
@@ -267,6 +337,15 @@ class PipelineOrchestrator:
                     # PoC for critical findings only
                     if severity_str == "Critical" and not finding.llm_poc:
                         finding.llm_poc = await poc.run(finding, source_snippet)
+
+                    # Verify PoC with forge if available
+                    if finding.llm_poc and context.config.foundry_fuzz_enabled:
+                        try:
+                            from ..llm.tasks.poc_verify import PoCVerifyTask
+                            verifier = PoCVerifyTask(self.llm_router)
+                            await verifier.run(finding, context.project_path)
+                        except Exception as ve:
+                            logger.debug(f"PoC verification skipped: {ve}")
 
                     processed_count += 1
 

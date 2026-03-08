@@ -47,6 +47,7 @@ class FindingCategory(str, Enum):
     TIMELOCK_BYPASS = "timelock-bypass"
     NFT_VULNERABILITY = "nft-vulnerability"
     BRIDGE_VULNERABILITY = "bridge-vulnerability"
+    ERC4626_VULNERABILITY = "erc4626-vulnerability"
     TYPO = "typo"
     INFORMATIONAL = "informational"
     OTHER = "other"
@@ -201,6 +202,11 @@ class AuditConfig(BaseModel):
     nft_detector_enabled: bool = True
     bridge_detector_enabled: bool = True
     integer_detector_enabled: bool = True
+    frontrun_detector_enabled: bool = True
+    initialization_detector_enabled: bool = True
+    erc4626_detector_enabled: bool = True
+    pragma_detector_enabled: bool = True
+    cross_contract_detector_enabled: bool = True
 
     # Detector config
     oracle_max_staleness_seconds: int = 3600
@@ -250,6 +256,11 @@ class AuditContext(BaseModel):
     slither_instance: Any = None  # Slither object (not serialized)
     compilation_artifacts: dict[str, Any] = Field(default_factory=dict)
     config: AuditConfig = Field(default_factory=AuditConfig)
+
+    # Cross-contract analysis graphs
+    import_graph: dict[str, list[str]] = Field(default_factory=dict)
+    inheritance_map: dict[str, list[str]] = Field(default_factory=dict)
+    call_graph: dict[str, list[tuple[str, str]]] = Field(default_factory=dict)
 
     @field_validator("project_path", mode="before")
     @classmethod
