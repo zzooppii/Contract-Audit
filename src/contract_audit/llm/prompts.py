@@ -86,6 +86,22 @@ Relevant code:
 Analyze whether this is a TRUE positive or FALSE positive.
 Respond with JSON: {"is_false_positive": true/false, "reason": "brief explanation"}
 """,
+    "audit.j2": """You are an expert smart contract security auditor. Analyze the following contract for business logic vulnerabilities.
+
+File: {{ filename }}
+
+```solidity
+{{ source }}
+```
+
+Focus on:
+1. Economic incentive flaws and flash loan attack vectors
+2. Access control model gaps and privilege escalation
+3. State machine correctness and invalid transitions
+4. Edge cases: zero amounts, self-transfers, boundary conditions
+
+Respond with JSON: {"findings": [{"title": "...", "description": "...", "severity": "Critical|High|Medium|Low", "category": "...", "start_line": N, "end_line": N, "function_name": "..."}]}
+""",
     "summarize.j2": """You are a smart contract security expert. Write an executive summary for this audit report.
 
 Total findings: {{ findings | length }}
