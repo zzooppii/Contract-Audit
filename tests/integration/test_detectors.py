@@ -494,3 +494,317 @@ contract SafeMath {
 
         downcast_findings = [f for f in findings if f.detector_name == "unsafe-downcast"]
         assert len(downcast_findings) == 0
+
+
+class TestFrontrunDetector:
+    @pytest.mark.asyncio
+    async def test_detects_missing_slippage(self, base_context):
+        from contract_audit.detectors.frontrun_detector import FrontrunDetector
+
+        source = load_fixture("FrontRunVulnerable.sol")
+        base_context.contract_sources = {"FrontRunVulnerable.sol": source}
+
+        detector = FrontrunDetector()
+        findings = await detector.detect(base_context)
+
+        slippage_findings = [f for f in findings if f.detector_name == "missing-slippage"]
+        assert len(slippage_findings) > 0
+        assert all(f.severity == Severity.HIGH for f in slippage_findings)
+
+    @pytest.mark.asyncio
+    async def test_detects_missing_deadline(self, base_context):
+        from contract_audit.detectors.frontrun_detector import FrontrunDetector
+
+        source = load_fixture("FrontRunVulnerable.sol")
+        base_context.contract_sources = {"FrontRunVulnerable.sol": source}
+
+        detector = FrontrunDetector()
+        findings = await detector.detect(base_context)
+
+        deadline_findings = [f for f in findings if f.detector_name == "missing-deadline"]
+        assert len(deadline_findings) > 0
+
+    @pytest.mark.asyncio
+    async def test_detects_missing_commit_reveal(self, base_context):
+        from contract_audit.detectors.frontrun_detector import FrontrunDetector
+
+        source = load_fixture("FrontRunVulnerable.sol")
+        base_context.contract_sources = {"FrontRunVulnerable.sol": source}
+
+        detector = FrontrunDetector()
+        findings = await detector.detect(base_context)
+
+        cr_findings = [f for f in findings if f.detector_name == "missing-commit-reveal"]
+        assert len(cr_findings) > 0
+
+    @pytest.mark.asyncio
+    async def test_no_false_positive_with_slippage(self, base_context):
+        from contract_audit.detectors.frontrun_detector import FrontrunDetector
+
+        safe_source = """
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+contract SafeSwap {
+    function swap(address tokenIn, uint256 amountIn, uint256 minAmountOut, uint256 deadline) external {
+        require(block.timestamp <= deadline, "Expired");
+        uint256 amountOut = amountIn;
+        require(amountOut >= minAmountOut, "Slippage");
+    }
+}
+"""
+        base_context.contract_sources = {"SafeSwap.sol": safe_source}
+
+        detector = FrontrunDetector()
+        findings = await detector.detect(base_context)
+
+        slippage_findings = [f for f in findings if f.detector_name == "missing-slippage"]
+        assert len(slippage_findings) == 0
+
+
+class TestInitializationDetector:
+    @pytest.mark.asyncio
+    async def test_detects_missing_initializer_modifier(self, base_context):
+        from contract_audit.detectors.initialization_detector import InitializationDetector
+
+        source = load_fixture("UninitializedProxy.sol")
+        base_context.contract_sources = {"UninitializedProxy.sol": source}
+
+        detector = InitializationDetector()
+        findings = await detector.detect(base_context)
+
+        init_findings = [f for f in findings if f.detector_name == "missing-initializer-modifier"]
+        assert len(init_findings) > 0
+        assert all(f.severity == Severity.CRITICAL for f in init_findings)
+
+    @pytest.mark.asyncio
+    async def test_detects_constructor_initializer_conflict(self, base_context):
+        from contract_audit.detectors.initialization_detector import InitializationDetector
+
+        source = load_fixture("UninitializedProxy.sol")
+        base_context.contract_sources = {"UninitializedProxy.sol": source}
+
+        detector = InitializationDetector()
+        findings = await detector.detect(base_context)
+
+        conflict_findings = [f for f in findings if f.detector_name == "constructor-initializer-conflict"]
+        assert len(conflict_findings) > 0
+
+    @pytest.mark.asyncio
+    async def test_detects_missing_disable_initializers(self, base_context):
+        from contract_audit.detectors.initialization_detector import InitializationDetector
+
+        source = load_fixture("UninitializedProxy.sol")
+        base_context.contract_sources = {"UninitializedProxy.sol": source}
+
+        detector = InitializationDetector()
+        findings = await detector.detect(base_context)
+
+        disable_findings = [f for f in findings if f.detector_name == "missing-disable-initializers"]
+        assert len(disable_findings) > 0
+
+    @pytest.mark.asyncio
+    async def test_no_false_positive_with_initializer(self, base_context):
+        from contract_audit.detectors.initialization_detector import InitializationDetector
+
+        safe_source = """
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+contract SafeProxy is Initializable {
+    address public owner;
+    constructor() {
+        _disableInitializers();
+    }
+    function initialize(address _owner) external initializer {
+        owner = _owner;
+    }
+}
+"""
+        base_context.contract_sources = {"SafeProxy.sol": safe_source}
+
+        detector = InitializationDetector()
+        findings = await detector.detect(base_context)
+
+        modifier_findings = [f for f in findings if f.detector_name == "missing-initializer-modifier"]
+        assert len(modifier_findings) == 0
+
+
+class TestERC4626Detector:
+    @pytest.mark.asyncio
+    async def test_detects_inflation_attack(self, base_context):
+        from contract_audit.detectors.erc4626_detector import ERC4626Detector
+
+        source = load_fixture("VulnerableVault4626.sol")
+        base_context.contract_sources = {"VulnerableVault4626.sol": source}
+
+        detector = ERC4626Detector()
+        findings = await detector.detect(base_context)
+
+        inflation_findings = [f for f in findings if f.detector_name == "inflation-attack"]
+        assert len(inflation_findings) > 0
+        assert all(f.severity == Severity.CRITICAL for f in inflation_findings)
+
+    @pytest.mark.asyncio
+    async def test_detects_direct_balance_manipulation(self, base_context):
+        from contract_audit.detectors.erc4626_detector import ERC4626Detector
+
+        source = load_fixture("VulnerableVault4626.sol")
+        base_context.contract_sources = {"VulnerableVault4626.sol": source}
+
+        detector = ERC4626Detector()
+        findings = await detector.detect(base_context)
+
+        balance_findings = [f for f in findings if f.detector_name == "direct-balance-manipulation"]
+        assert len(balance_findings) > 0
+        assert all(f.severity == Severity.HIGH for f in balance_findings)
+
+    @pytest.mark.asyncio
+    async def test_detects_rounding_direction(self, base_context):
+        from contract_audit.detectors.erc4626_detector import ERC4626Detector
+
+        source = load_fixture("VulnerableVault4626.sol")
+        base_context.contract_sources = {"VulnerableVault4626.sol": source}
+
+        detector = ERC4626Detector()
+        findings = await detector.detect(base_context)
+
+        rounding_findings = [f for f in findings if f.detector_name == "rounding-direction"]
+        assert len(rounding_findings) > 0
+
+    @pytest.mark.asyncio
+    async def test_skips_non_vault_contracts(self, base_context):
+        from contract_audit.detectors.erc4626_detector import ERC4626Detector
+
+        non_vault_source = """
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+contract SimpleStorage {
+    uint256 public value;
+    function setValue(uint256 _value) external {
+        value = _value;
+    }
+}
+"""
+        base_context.contract_sources = {"SimpleStorage.sol": non_vault_source}
+
+        detector = ERC4626Detector()
+        findings = await detector.detect(base_context)
+
+        assert len(findings) == 0
+
+
+class TestPragmaDetector:
+    @pytest.mark.asyncio
+    async def test_detects_floating_pragma(self, base_context):
+        from contract_audit.detectors.pragma_detector import PragmaDetector
+
+        source = load_fixture("FloatingPragma.sol")
+        base_context.contract_sources = {"FloatingPragma.sol": source}
+
+        detector = PragmaDetector()
+        findings = await detector.detect(base_context)
+
+        float_findings = [f for f in findings if f.detector_name == "floating-pragma"]
+        assert len(float_findings) > 0
+        assert all(f.severity == Severity.LOW for f in float_findings)
+
+    @pytest.mark.asyncio
+    async def test_detects_outdated_version(self, base_context):
+        from contract_audit.detectors.pragma_detector import PragmaDetector
+
+        source = load_fixture("FloatingPragma.sol")
+        base_context.contract_sources = {"FloatingPragma.sol": source}
+
+        detector = PragmaDetector()
+        findings = await detector.detect(base_context)
+
+        version_findings = [f for f in findings if f.detector_name == "outdated-version"]
+        assert len(version_findings) > 0
+        assert all(f.severity == Severity.MEDIUM for f in version_findings)
+
+    @pytest.mark.asyncio
+    async def test_detects_missing_spdx(self, base_context):
+        from contract_audit.detectors.pragma_detector import PragmaDetector
+
+        source = load_fixture("FloatingPragma.sol")
+        base_context.contract_sources = {"FloatingPragma.sol": source}
+
+        detector = PragmaDetector()
+        findings = await detector.detect(base_context)
+
+        spdx_findings = [f for f in findings if f.detector_name == "missing-spdx"]
+        assert len(spdx_findings) > 0
+        assert all(f.severity == Severity.INFORMATIONAL for f in spdx_findings)
+
+    @pytest.mark.asyncio
+    async def test_no_false_positive_on_locked_pragma(self, base_context):
+        from contract_audit.detectors.pragma_detector import PragmaDetector
+
+        safe_source = """
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.20;
+contract SafeContract {
+    uint256 public value;
+}
+"""
+        base_context.contract_sources = {"SafeContract.sol": safe_source}
+
+        detector = PragmaDetector()
+        findings = await detector.detect(base_context)
+
+        float_findings = [f for f in findings if f.detector_name == "floating-pragma"]
+        assert len(float_findings) == 0
+
+        spdx_findings = [f for f in findings if f.detector_name == "missing-spdx"]
+        assert len(spdx_findings) == 0
+
+
+class TestCrossContractDetector:
+    @pytest.mark.asyncio
+    async def test_detects_cross_contract_reentrancy(self, base_context):
+        from contract_audit.detectors.cross_contract_detector import CrossContractDetector
+
+        source_a = load_fixture("CrossContractA.sol")
+        source_b = load_fixture("CrossContractB.sol")
+        base_context.contract_sources = {
+            "CrossContractA.sol": source_a,
+            "CrossContractB.sol": source_b,
+        }
+
+        detector = CrossContractDetector()
+        findings = await detector.detect(base_context)
+
+        reentrancy_findings = [f for f in findings if f.detector_name == "cross-contract-reentrancy"]
+        assert len(reentrancy_findings) > 0
+        assert all(f.severity == Severity.CRITICAL for f in reentrancy_findings)
+
+    @pytest.mark.asyncio
+    async def test_detects_interface_mismatch(self, base_context):
+        from contract_audit.detectors.cross_contract_detector import CrossContractDetector
+
+        source_a = load_fixture("CrossContractA.sol")
+        source_b = load_fixture("CrossContractB.sol")
+        base_context.contract_sources = {
+            "CrossContractA.sol": source_a,
+            "CrossContractB.sol": source_b,
+        }
+
+        detector = CrossContractDetector()
+        findings = await detector.detect(base_context)
+
+        # CrossContractA declares "is ICallback" but is missing onComplete
+        mismatch_findings = [f for f in findings if f.detector_name == "interface-mismatch"]
+        assert len(mismatch_findings) > 0
+
+    @pytest.mark.asyncio
+    async def test_skips_single_contract(self, base_context):
+        from contract_audit.detectors.cross_contract_detector import CrossContractDetector
+
+        base_context.contract_sources = {
+            "Single.sol": "contract Single { function foo() external {} }",
+        }
+
+        detector = CrossContractDetector()
+        findings = await detector.detect(base_context)
+
+        assert len(findings) == 0
