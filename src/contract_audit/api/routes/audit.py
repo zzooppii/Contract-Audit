@@ -41,7 +41,23 @@ class AuditStatus(BaseModel):
     error: str | None = None
 
 
-@router.post("", response_model=AuditStatus)
+@router.get("", response_model=list[AuditStatus])
+async def list_audits(
+    user: dict = Depends(require_google_auth),
+) -> list[AuditStatus]:
+    """List all audits."""
+    return [
+        AuditStatus(
+            audit_id=audit["id"],
+            status=audit["status"],
+            progress=audit.get("progress"),
+            error=audit.get("error"),
+        )
+        for audit in _audit_store.values()
+    ]
+
+
+@router.post("/start", response_model=AuditStatus)
 async def start_audit(
     request_body: AuditRequest,
     background_tasks: BackgroundTasks,
