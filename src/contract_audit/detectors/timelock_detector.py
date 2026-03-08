@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import re
 
+from .utils import strip_comments
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -23,8 +24,6 @@ from ..core.models import (
 )
 
 logger = logging.getLogger(__name__)
-
-_COMMENT_RE = re.compile(r'//.*$|/\*[\s\S]*?\*/', re.MULTILINE)
 
 # Access control patterns
 ACCESS_CONTROL_PATTERNS = [
@@ -43,10 +42,6 @@ ACCESS_CONTROL_PATTERNS = [
 ]
 
 
-def _strip_comments(source: str) -> str:
-    return _COMMENT_RE.sub('', source)
-
-
 class TimelockDetector:
     """Detects timelock and vesting vulnerabilities."""
 
@@ -59,7 +54,7 @@ class TimelockDetector:
         min_delay = context.config.timelock_min_delay_seconds
 
         for filename, source in context.contract_sources.items():
-            clean = _strip_comments(source)
+            clean = strip_comments(source)
             if not re.search(r'\b(timelock|delay|queue|vesting|cliff|unlock|schedule)\b', clean, re.IGNORECASE):
                 continue
             findings.extend(self._check_zero_delay(filename, clean, min_delay))

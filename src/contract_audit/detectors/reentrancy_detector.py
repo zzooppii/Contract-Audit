@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 
+from .utils import strip_comments, strip_interfaces, extract_functions
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -52,31 +53,6 @@ REENTRANCY_GUARD_PATTERNS = [
 ]
 
 
-def _strip_comments(source: str) -> str:
-    """Remove single-line and multi-line comments."""
-    source = re.sub(r'//.*?$', '', source, flags=re.MULTILINE)
-    source = re.sub(r'/\*.*?\*/', '', source, flags=re.DOTALL)
-    return source
-
-
-def _strip_interfaces(source: str) -> str:
-    """Remove interface declarations."""
-    result = []
-    in_interface = False
-    depth = 0
-    for line in source.splitlines():
-        if re.search(r'\binterface\s+\w+', line):
-            in_interface = True
-            depth = 0
-        if in_interface:
-            depth += line.count('{') - line.count('}')
-            if depth <= 0 and '}' in line:
-                in_interface = False
-            continue
-        result.append(line)
-    return '\n'.join(result)
-
-
 class ReentrancyDetector:
     """Detects reentrancy vulnerabilities in Solidity contracts."""
 
@@ -89,9 +65,9 @@ class ReentrancyDetector:
         findings: list[Finding] = []
 
         for filename, source in context.contract_sources.items():
-            clean = _strip_comments(source)
-            clean = _strip_interfaces(clean)
-            functions = self._extract_functions(clean)
+            clean = strip_comments(source)
+            clean = strip_interfaces(clean)
+            functions = extract_functions(clean)
 
             findings.extend(self._check_cei_violation(filename, functions))
             findings.extend(self._check_cross_function_reentrancy(filename, functions))
@@ -360,78 +336,3 @@ class ReentrancyDetector:
                     break
 
         return findings
-
-    def _extract_functions(self, source: str) -> list[dict]:
-        """Extract function declarations with bodies from cleaned source."""
-        functions = []
-        lines = source.splitlines()
-        in_interface = False
-        interface_depth = 0
-
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-
-            if re.search(r'\binterface\s+\w+', line):
-                in_interface = True
-                interface_depth = 0
-
-            if in_interface:
-                interface_depth += line.count('{') - line.count('}')
-                if interface_depth <= 0 and '}' in line:
-                    in_interface = False
-                i += 1
-                continue
-
-            func_match = re.search(r'\bfunction\s+(\w+)\s*\(', line)
-            if func_match:
-                func_name = func_match.group(1)
-
-                # Collect full signature
-                sig_lines = [line]
-                j = i + 1
-                brace_found = '{' in line
-                while j < len(lines) and not brace_found:
-                    sig_lines.append(lines[j])
-                    if '{' in lines[j]:
-                        brace_found = True
-                    j += 1
-
-                full_sig = ' '.join(sig_lines)
-
-                visibility = 'internal'
-                if 'external' in full_sig:
-                    visibility = 'external'
-                elif 'public' in full_sig:
-                    visibility = 'public'
-                elif 'private' in full_sig:
-                    visibility = 'private'
-
-                is_view_pure = bool(re.search(r'\b(view|pure)\b', full_sig))
-
-                # Extract body
-                depth = 0
-                found_open = False
-                body_lines = []
-                for k in range(i, len(lines)):
-                    body_lines.append(lines[k])
-                    depth += lines[k].count('{') - lines[k].count('}')
-                    if lines[k].count('{') > 0:
-                        found_open = True
-                    if found_open and depth <= 0:
-                        break
-
-                body = '\n'.join(body_lines)
-
-                functions.append({
-                    'name': func_name,
-                    'start': i + 1,
-                    'visibility': visibility,
-                    'is_view_pure': is_view_pure,
-                    'signature': full_sig,
-                    'body': body,
-                })
-
-            i += 1
-
-        return functions

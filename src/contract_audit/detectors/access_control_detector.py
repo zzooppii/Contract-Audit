@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 import re
 
+from .utils import extract_functions
+
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -94,10 +96,8 @@ class AccessControlDetector:
     ) -> list[Finding]:
         """Find external/public functions that modify state without access control."""
         findings: list[Finding] = []
-        lines = source.splitlines()
-
         # Skip interface blocks
-        functions = self._extract_functions(lines)
+        functions = extract_functions(source)
 
         for func in functions:
             name = func['name']
@@ -183,83 +183,3 @@ class AccessControlDetector:
         # Medium: other setters
         return Severity.MEDIUM
 
-    def _extract_functions(self, lines: list[str]) -> list[dict]:
-        """Extract function declarations with their bodies from source lines."""
-        functions = []
-        in_interface = False
-        interface_depth = 0
-
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-
-            # Track interface blocks to skip them
-            if re.search(r'\binterface\s+\w+', line):
-                in_interface = True
-                interface_depth = 0
-
-            if in_interface:
-                interface_depth += line.count('{') - line.count('}')
-                if interface_depth <= 0 and line.count('}') > 0:
-                    in_interface = False
-                i += 1
-                continue
-
-            # Look for function declarations
-            func_match = re.search(r'\bfunction\s+(\w+)\s*\(', line)
-            if func_match:
-                func_name = func_match.group(1)
-
-                # Collect the full function signature (may span multiple lines)
-                sig_lines = [line]
-                j = i + 1
-                brace_found = '{' in line
-                while j < len(lines) and not brace_found:
-                    sig_lines.append(lines[j])
-                    if '{' in lines[j]:
-                        brace_found = True
-                    j += 1
-
-                full_sig = ' '.join(sig_lines)
-
-                # Determine visibility
-                visibility = 'internal'  # default
-                if 'external' in full_sig:
-                    visibility = 'external'
-                elif 'public' in full_sig:
-                    visibility = 'public'
-                elif 'private' in full_sig:
-                    visibility = 'private'
-
-                # Check if view/pure
-                is_view_pure = bool(
-                    re.search(r'\b(view|pure)\b', full_sig)
-                )
-
-                # Extract function body
-                depth = 0
-                found_open = False
-                body_lines = []
-                for k in range(i, len(lines)):
-                    body_lines.append(lines[k])
-                    opens = lines[k].count('{')
-                    closes = lines[k].count('}')
-                    depth += opens - closes
-                    if opens > 0:
-                        found_open = True
-                    if found_open and depth <= 0:
-                        break
-
-                body = '\n'.join(body_lines)
-
-                functions.append({
-                    'name': func_name,
-                    'start': i + 1,  # 1-indexed
-                    'visibility': visibility,
-                    'is_view_pure': is_view_pure,
-                    'body': body,
-                })
-
-            i += 1
-
-        return functions

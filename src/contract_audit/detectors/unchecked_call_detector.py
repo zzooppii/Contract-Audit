@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 
+from .utils import strip_comments, strip_interfaces, extract_functions
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -19,31 +20,6 @@ from ..core.models import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _strip_comments(source: str) -> str:
-    """Remove single-line and multi-line comments."""
-    source = re.sub(r'//.*?$', '', source, flags=re.MULTILINE)
-    source = re.sub(r'/\*.*?\*/', '', source, flags=re.DOTALL)
-    return source
-
-
-def _strip_interfaces(source: str) -> str:
-    """Remove interface declarations."""
-    result = []
-    in_interface = False
-    depth = 0
-    for line in source.splitlines():
-        if re.search(r'\binterface\s+\w+', line):
-            in_interface = True
-            depth = 0
-        if in_interface:
-            depth += line.count('{') - line.count('}')
-            if depth <= 0 and '}' in line:
-                in_interface = False
-            continue
-        result.append(line)
-    return '\n'.join(result)
 
 
 class UncheckedCallDetector:
@@ -57,8 +33,8 @@ class UncheckedCallDetector:
         findings: list[Finding] = []
 
         for filename, source in context.contract_sources.items():
-            clean = _strip_comments(source)
-            clean = _strip_interfaces(clean)
+            clean = strip_comments(source)
+            clean = strip_interfaces(clean)
             lines = clean.splitlines()
 
             findings.extend(self._check_unchecked_low_level_call(filename, lines))
@@ -199,7 +175,7 @@ class UncheckedCallDetector:
         """Detect delegatecall to user-supplied or parameter-provided addresses."""
         findings: list[Finding] = []
 
-        functions = self._extract_functions(lines)
+        functions = extract_functions(source)
         for func in functions:
             if not re.search(r'\.delegatecall\s*\(', func['body']):
                 continue
@@ -278,43 +254,3 @@ class UncheckedCallDetector:
                     break
 
         return findings
-
-    def _extract_functions(self, lines: list[str]) -> list[dict]:
-        """Extract function declarations with their bodies."""
-        functions = []
-        i = 0
-        while i < len(lines):
-            func_match = re.search(r'\bfunction\s+(\w+)\s*\(', lines[i])
-            if func_match:
-                func_name = func_match.group(1)
-                sig_lines = [lines[i]]
-                j = i + 1
-                brace_found = '{' in lines[i]
-                while j < len(lines) and not brace_found:
-                    sig_lines.append(lines[j])
-                    if '{' in lines[j]:
-                        brace_found = True
-                    j += 1
-
-                full_sig = ' '.join(sig_lines)
-                depth = 0
-                found_open = False
-                body_lines = []
-                for k in range(i, len(lines)):
-                    body_lines.append(lines[k])
-                    depth += lines[k].count('{') - lines[k].count('}')
-                    if lines[k].count('{') > 0:
-                        found_open = True
-                    if found_open and depth <= 0:
-                        break
-
-                functions.append({
-                    'name': func_name,
-                    'start': i + 1,
-                    'signature': full_sig,
-                    'body': '\n'.join(body_lines),
-                })
-
-            i += 1
-
-        return functions

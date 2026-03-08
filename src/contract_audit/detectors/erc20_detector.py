@@ -13,6 +13,8 @@ from __future__ import annotations
 import logging
 import re
 
+from .utils import strip_interfaces
+
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -76,7 +78,7 @@ class ERC20Detector:
         )
 
         # Find transfer/transferFrom functions in contract body (not interface)
-        contract_body = self._strip_interfaces(source)
+        contract_body = strip_interfaces(source)
 
         if not has_transfer_event and re.search(r'\bfunction\s+transfer\b', contract_body):
             # Find the transfer function line for location
@@ -144,7 +146,7 @@ class ERC20Detector:
         findings = []
         lines = source.splitlines()
 
-        contract_body = self._strip_interfaces(source)
+        contract_body = strip_interfaces(source)
 
         has_approve = bool(re.search(r'\bfunction\s+approve\b', contract_body))
         has_increase = bool(re.search(
@@ -192,7 +194,7 @@ class ERC20Detector:
         findings = []
         lines = source.splitlines()
 
-        contract_body = self._strip_interfaces(source)
+        contract_body = strip_interfaces(source)
 
         for i, line in enumerate(lines, 1):
             if re.search(r'\bfunction\s+transfer\s*\(', line):
@@ -242,7 +244,7 @@ class ERC20Detector:
         findings = []
         lines = source.splitlines()
 
-        contract_body = self._strip_interfaces(source)
+        contract_body = strip_interfaces(source)
 
         for i, line in enumerate(lines, 1):
             if re.search(r'\bfunction\s+mint\b', line):
@@ -335,25 +337,6 @@ class ERC20Detector:
                 break
 
         return findings
-
-    @staticmethod
-    def _strip_interfaces(source: str) -> str:
-        """Remove interface blocks."""
-        result = []
-        lines = source.splitlines()
-        in_interface = False
-        depth = 0
-        for line in lines:
-            if not in_interface and re.search(r'\binterface\s+\w+', line):
-                in_interface = True
-                depth = 0
-            if in_interface:
-                depth += line.count('{') - line.count('}')
-                if depth <= 0 and line.count('}') > 0:
-                    in_interface = False
-                continue
-            result.append(line)
-        return "\n".join(result)
 
     @staticmethod
     def _get_function_body(lines: list[str], start_idx: int) -> str:

@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 import re
 
+from .utils import strip_interfaces
+
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -77,7 +79,7 @@ class GovernanceDetector:
         findings = []
 
         # Strip interface blocks to avoid matching declarations
-        contract_body = self._strip_interfaces(source)
+        contract_body = strip_interfaces(source)
         uses_balance_of = bool(re.search(r'\bbalanceOf\s*\(', contract_body))
         uses_past_votes = bool(
             re.search(r'\bgetPastVotes\s*\(|\bgetVotes\s*\(|\bcheckpoint', contract_body)
@@ -467,25 +469,6 @@ class GovernanceDetector:
                     )
 
         return findings
-
-    @staticmethod
-    def _strip_interfaces(source: str) -> str:
-        """Remove interface blocks from source to avoid matching declarations."""
-        result = []
-        lines = source.splitlines()
-        in_interface = False
-        depth = 0
-        for line in lines:
-            if not in_interface and re.search(r'\binterface\s+\w+', line):
-                in_interface = True
-                depth = 0
-            if in_interface:
-                depth += line.count('{') - line.count('}')
-                if depth <= 0 and depth + line.count('}') > 0:
-                    in_interface = False
-                continue
-            result.append(line)
-        return "\n".join(result)
 
     @staticmethod
     def _get_enclosing_function(lines: list[str], start_idx: int) -> str:
