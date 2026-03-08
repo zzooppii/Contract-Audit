@@ -9,7 +9,6 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from ...auth.google_oauth import GoogleOAuth
-from ...auth.token_store import TokenStore
 from ...auth.middleware import get_google_auth_url
 
 logger = logging.getLogger(__name__)
@@ -51,7 +50,7 @@ async def callback(
     redirect_uri = str(request.url_for("callback"))
 
     try:
-        token = oauth.exchange_code(code, redirect_uri)
+        oauth.exchange_code(code, redirect_uri)
         user_info = oauth.get_user_info()
 
         if user_info:
@@ -82,4 +81,5 @@ async def me(request: Request) -> dict[str, Any]:
     user = request.session.get("user")
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return user
+    result: dict[str, Any] = user
+    return result

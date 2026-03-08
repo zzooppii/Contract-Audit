@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -24,7 +23,7 @@ logger = logging.getLogger(__name__)
 class PoCVerifyTask:
     """Verifies LLM-generated PoC exploits by running them with Foundry."""
 
-    def __init__(self, router: "LLMRouter | None" = None) -> None:
+    def __init__(self, router: LLMRouter | None = None) -> None:
         self.router = router
 
     async def run(self, finding: Finding, project_path: Path) -> bool:

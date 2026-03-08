@@ -199,7 +199,8 @@ class FlashLoanDetector:
                             Finding(
                                 title=f"Spot Price Oracle: {description}",
                                 description=(
-                                    f"Reading spot price from {description} without TWAP protection. "
+                                    f"Reading spot price from {description} "
+                                    "without TWAP protection. "
                                     "This price can be manipulated within a single transaction "
                                     "via flash loans. Use time-weighted average prices (TWAP)."
                                 ),

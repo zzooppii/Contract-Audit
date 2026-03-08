@@ -1,9 +1,10 @@
 """Integration tests for specialized detectors against fixture contracts."""
 
-import pytest
 from pathlib import Path
 
-from contract_audit.core.models import AuditContext, AuditConfig, FindingCategory, Severity
+import pytest
+
+from contract_audit.core.models import AuditConfig, AuditContext, FindingCategory, Severity
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "contracts"
 
@@ -51,7 +52,6 @@ class TestOracleDetector:
         detector = OracleDetector()
         findings = await detector.detect(base_context)
 
-        spot_findings = [f for f in findings if "spot" in f.detector_name.lower() or "reserve" in f.detector_name.lower()]
         # Should find at least the getReserves issue
         assert len(findings) > 0  # Multiple issues expected
 
@@ -65,7 +65,8 @@ class TestOracleDetector:
 pragma solidity ^0.8.0;
 contract SafeOracle {
     function getPrice() external view returns (int256) {
-        (uint80 roundId, int256 price, , uint256 updatedAt, uint80 answeredInRound) = oracle.latestRoundData();
+        (uint80 roundId, int256 price, , uint256 updatedAt,
+            uint80 answeredInRound) = oracle.latestRoundData();
         require(answeredInRound >= roundId, "Stale");
         require(block.timestamp - updatedAt <= 3600, "Too old");
         return price;
@@ -132,7 +133,10 @@ class TestGovernanceDetector:
 
         assert len(findings) > 0
         categories = {f.category for f in findings}
-        assert FindingCategory.GOVERNANCE_ATTACK in categories or FindingCategory.CENTRALIZATION_RISK in categories
+        assert (
+            FindingCategory.GOVERNANCE_ATTACK in categories
+            or FindingCategory.CENTRALIZATION_RISK in categories
+        )
 
 
 class TestGasGriefingDetector:
@@ -545,7 +549,8 @@ class TestFrontrunDetector:
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 contract SafeSwap {
-    function swap(address tokenIn, uint256 amountIn, uint256 minAmountOut, uint256 deadline) external {
+    function swap(address tokenIn, uint256 amountIn,
+        uint256 minAmountOut, uint256 deadline) external {
         require(block.timestamp <= deadline, "Expired");
         uint256 amountOut = amountIn;
         require(amountOut >= minAmountOut, "Slippage");
@@ -586,7 +591,10 @@ class TestInitializationDetector:
         detector = InitializationDetector()
         findings = await detector.detect(base_context)
 
-        conflict_findings = [f for f in findings if f.detector_name == "constructor-initializer-conflict"]
+        conflict_findings = [
+            f for f in findings
+            if f.detector_name == "constructor-initializer-conflict"
+        ]
         assert len(conflict_findings) > 0
 
     @pytest.mark.asyncio
@@ -599,7 +607,10 @@ class TestInitializationDetector:
         detector = InitializationDetector()
         findings = await detector.detect(base_context)
 
-        disable_findings = [f for f in findings if f.detector_name == "missing-disable-initializers"]
+        disable_findings = [
+            f for f in findings
+            if f.detector_name == "missing-disable-initializers"
+        ]
         assert len(disable_findings) > 0
 
     @pytest.mark.asyncio
@@ -625,7 +636,10 @@ contract SafeProxy is Initializable {
         detector = InitializationDetector()
         findings = await detector.detect(base_context)
 
-        modifier_findings = [f for f in findings if f.detector_name == "missing-initializer-modifier"]
+        modifier_findings = [
+            f for f in findings
+            if f.detector_name == "missing-initializer-modifier"
+        ]
         assert len(modifier_findings) == 0
 
 
@@ -774,7 +788,10 @@ class TestCrossContractDetector:
         detector = CrossContractDetector()
         findings = await detector.detect(base_context)
 
-        reentrancy_findings = [f for f in findings if f.detector_name == "cross-contract-reentrancy"]
+        reentrancy_findings = [
+            f for f in findings
+            if f.detector_name == "cross-contract-reentrancy"
+        ]
         assert len(reentrancy_findings) > 0
         assert all(f.severity == Severity.CRITICAL for f in reentrancy_findings)
 

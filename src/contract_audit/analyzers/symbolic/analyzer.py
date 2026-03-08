@@ -102,7 +102,6 @@ class SymbolicAnalyzer:
 
         # Find the contract containing the finding
         target_file = finding.locations[0].file if finding.locations else ""
-        target_func = finding.locations[0].function if finding.locations else None
         contracts = artifacts.get("contracts", {})
 
         for filename, file_contracts in contracts.items():

@@ -1,7 +1,5 @@
 """Unit tests for Foundry harness and invariant generators."""
 
-import pytest
-from pathlib import Path
 
 from contract_audit.core.models import (
     Confidence,

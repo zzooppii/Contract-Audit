@@ -6,10 +6,8 @@ import logging
 from typing import Any
 
 from fastapi import HTTPException, Request, status
-from fastapi.responses import RedirectResponse
 
 from .google_oauth import GOOGLE_AUTH_URL, GOOGLE_CLIENT_ID, GOOGLE_SCOPES
-from .token_store import TokenStore
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +24,8 @@ async def require_google_auth(request: Request) -> dict[str, Any]:
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return user
+    result: dict[str, Any] = user
+    return result
 
 
 def get_google_auth_url(redirect_uri: str, state: str = "") -> str:

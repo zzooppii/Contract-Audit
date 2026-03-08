@@ -6,9 +6,8 @@ import asyncio
 import json
 import logging
 import shutil
-from pathlib import Path
 
-from ...core.exceptions import AnalyzerError, ToolNotAvailableError
+from ...core.exceptions import AnalyzerError
 from ...core.models import AuditContext, Finding
 from .result_parser import parse_foundry_results
 
@@ -81,6 +80,6 @@ class FoundryAnalyzer:
             logger.info(f"Foundry: {len(findings)} failing tests")
             return findings
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("Foundry tests timed out after 10 minutes")
             return []

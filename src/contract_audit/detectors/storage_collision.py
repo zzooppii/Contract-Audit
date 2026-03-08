@@ -116,12 +116,12 @@ class StorageCollisionDetector:
 
         return findings
 
-    def _check_upgrade_safety(self, layouts: dict[str, dict]) -> list[Finding]:
+    def _check_upgrade_safety(self, layouts: dict[str, dict[str, Any]]) -> list[Finding]:
         """Check upgrade safety between V1/V2 pairs."""
         findings = []
 
         # Find versioned pairs by name pattern
-        versioned: dict[str, dict[str, dict]] = {}
+        versioned: dict[str, dict[int, dict[str, Any]]] = {}  # base -> version -> layout
         for name in layouts:
             import re
             match = re.match(r"(.+?)V(\d+)$", name)
@@ -169,7 +169,8 @@ class StorageCollisionDetector:
                                     f"Upgrading from `{name_v1}` to `{name_v2}` changes "
                                     f"slot {slot}: `{var1['type']} {var1['label']}` -> "
                                     f"`{v2_slots[slot]['type']} {v2_slots[slot]['label']}`. "
-                                    "Changing variable types at the same slot causes data corruption."
+                                    "Changing variable types at the same "
+                                    "slot causes data corruption."
                                 ),
                                 severity=Severity.CRITICAL,
                                 confidence=Confidence.HIGH,
@@ -185,7 +186,6 @@ class StorageCollisionDetector:
 
     def _regex_storage_checks(self, filename: str, source: str) -> list[Finding]:
         """Fallback regex-based storage analysis."""
-        import re
         findings = []
 
         # Check for unsafe gap patterns in upgradeable contracts
@@ -211,9 +211,9 @@ class StorageCollisionDetector:
         return findings
 
 
-def _extract_slots(layout: dict[str, Any]) -> dict[str, dict]:
+def _extract_slots(layout: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """Extract slot -> variable mapping from solc storage layout."""
-    slots: dict[str, dict] = {}
+    slots: dict[str, dict[str, Any]] = {}
     storage = layout.get("storage", [])
     for var in storage:
         slot = str(var.get("slot", ""))

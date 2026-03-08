@@ -9,9 +9,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 # Pattern -> invariant mapping
-INVARIANT_PATTERNS: list[dict] = [
+INVARIANT_PATTERNS: list[dict[str, str]] = [
     {
         "name": "erc20_supply",
         "detect": r'\btotalSupply\b.*\bbalanceOf\b|\bbalanceOf\b.*\btotalSupply\b',

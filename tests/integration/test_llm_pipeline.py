@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -20,7 +20,6 @@ from contract_audit.core.models import (
 from contract_audit.core.pipeline import PipelineOrchestrator
 from contract_audit.scoring.engine import RiskScoringEngine
 from contract_audit.scoring.false_positive import FalsePositiveReducer
-
 
 SAMPLE_SOURCE = """\
 pragma solidity ^0.8.20;
@@ -201,7 +200,7 @@ async def test_llm_audit_phase_skipped_when_disabled(mock_router, tmp_path):
     # _phase_llm_audit should return empty when router is present but disabled
     # The pipeline.run() checks config.llm_enabled before calling this
     # So we test the run() method directly
-    result = await pipeline.run(context)
+    await pipeline.run(context)
     assert mock_router._call_count == 0
 
 

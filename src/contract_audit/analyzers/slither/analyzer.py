@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-import shutil
 from pathlib import Path
 from typing import Any
 
-from ...core.exceptions import AnalyzerError, ToolNotAvailableError
+from ...core.exceptions import AnalyzerError
 from ...core.models import AuditContext, Finding
 from .result_mapper import map_slither_result
 
@@ -125,7 +124,9 @@ class SlitherAnalyzer:
             logger.warning(f"No .sol files found in {target}")
             return []
 
-        logger.info(f"No build framework detected, analyzing {len(sol_files)} .sol files individually")
+        logger.info(
+            f"No build framework detected, analyzing {len(sol_files)} .sol files individually"
+        )
         return sol_files
 
     @staticmethod
@@ -140,10 +141,10 @@ class SlitherAnalyzer:
 
     def _get_custom_detectors(self) -> list[type]:
         """Return list of custom detector classes to register."""
-        detectors = []
+        detectors: list[type] = []
         try:
-            from .custom_detectors.oracle_manipulation import OracleManipulationDetector
             from .custom_detectors.flash_loan_taint import FlashLoanTaintDetector
+            from .custom_detectors.oracle_manipulation import OracleManipulationDetector
             if hasattr(OracleManipulationDetector, "_detect"):
                 detectors.append(OracleManipulationDetector)
             if hasattr(FlashLoanTaintDetector, "_detect"):

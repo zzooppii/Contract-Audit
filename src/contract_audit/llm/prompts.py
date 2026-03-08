@@ -12,7 +12,8 @@ _FALLBACK_DIR = Path(__file__).parent / "default_prompts"
 
 # Fallback templates if file-based ones don't exist
 FALLBACK_PROMPTS: dict[str, str] = {
-    "explain.j2": """You are a smart contract security expert. Analyze this finding and provide a clear, detailed explanation.
+    "explain.j2": """You are a smart contract security expert. \
+Analyze this finding and provide a clear, detailed explanation.
 
 Finding: {{ finding.title }}
 Severity: {{ finding.severity.value }}
@@ -31,7 +32,8 @@ Provide:
 2. The attack vector and potential impact
 3. Any specific conditions required for exploitation
 """,
-    "remediate.j2": """You are a smart contract security expert. Provide a concrete remediation for this finding.
+    "remediate.j2": """You are a smart contract security expert. \
+Provide a concrete remediation for this finding.
 
 Finding: {{ finding.title }}
 Severity: {{ finding.severity.value }}
@@ -49,7 +51,8 @@ Provide:
 2. Explanation of why the fix addresses the root cause
 3. Any additional precautions to consider
 """,
-    "poc_generate.j2": """You are a smart contract security researcher. Generate a Foundry PoC test that demonstrates this vulnerability.
+    "poc_generate.j2": """You are a smart contract security researcher. \
+Generate a Foundry PoC test that demonstrates this vulnerability.
 
 Finding: {{ finding.title }}
 Severity: {{ finding.severity.value }}
@@ -86,7 +89,8 @@ Relevant code:
 Analyze whether this is a TRUE positive or FALSE positive.
 Respond with JSON: {"is_false_positive": true/false, "reason": "brief explanation"}
 """,
-    "audit.j2": """You are an expert smart contract security auditor. Analyze the following contract for business logic vulnerabilities.
+    "audit.j2": """You are an expert smart contract security auditor. \
+Analyze the following contract for business logic vulnerabilities.
 
 File: {{ filename }}
 
@@ -100,9 +104,12 @@ Focus on:
 3. State machine correctness and invalid transitions
 4. Edge cases: zero amounts, self-transfers, boundary conditions
 
-Respond with JSON: {"findings": [{"title": "...", "description": "...", "severity": "Critical|High|Medium|Low", "category": "...", "start_line": N, "end_line": N, "function_name": "..."}]}
+Respond with JSON: {"findings": [{"title": "...", "description": "...", \
+"severity": "Critical|High|Medium|Low", "category": "...", \
+"start_line": N, "end_line": N, "function_name": "..."}]}
 """,
-    "summarize.j2": """You are a smart contract security expert. Write an executive summary for this audit report.
+    "summarize.j2": """You are a smart contract security expert. \
+Write an executive summary for this audit report.
 
 Total findings: {{ findings | length }}
 Critical: {{ findings | selectattr('severity.value', 'eq', 'Critical') | list | length }}

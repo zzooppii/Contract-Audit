@@ -15,8 +15,6 @@ from __future__ import annotations
 import logging
 import re
 
-from .utils import strip_interfaces
-
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -25,6 +23,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import strip_interfaces
 
 logger = logging.getLogger(__name__)
 
@@ -251,7 +250,8 @@ class GovernanceDetector:
                     Finding(
                         title="Missing Governance Timelock",
                         description=(
-                            "Governance contract has an execute function but no timelock mechanism. "
+                            "Governance contract has an execute function "
+                            "but no timelock mechanism. "
                             "Without a timelock, proposals execute immediately after passing. "
                             f"The recommended minimum delay is {min_timelock // 3600}h to allow "
                             "users to exit before malicious proposals take effect."
@@ -325,7 +325,8 @@ class GovernanceDetector:
                             description=(
                                 "The proposal threshold is 0, meaning any address can submit "
                                 "governance proposals regardless of token holdings. "
-                                "This enables spam attacks and lowers the bar for governance griefing."
+                                "This enables spam attacks and lowers the bar "
+                                "for governance griefing."
                             ),
                             severity=Severity.MEDIUM,
                             confidence=Confidence.HIGH,
@@ -343,7 +344,7 @@ class GovernanceDetector:
 
     def _check_missing_quorum_in_execute(self, filename: str, source: str) -> list[Finding]:
         """Check if execute() validates quorum was met."""
-        findings = []
+        findings: list[Finding] = []
         lines = source.splitlines()
 
         # Only relevant if contract has a quorum concept

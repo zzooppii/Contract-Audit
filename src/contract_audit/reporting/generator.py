@@ -6,11 +6,11 @@ import logging
 from pathlib import Path
 
 from ..core.models import AuditConfig, AuditResult
-from .formats.sarif import write_sarif
+from .formats.html import write_html
 from .formats.json_report import write_json_report
 from .formats.markdown import write_markdown
-from .formats.html import write_html
 from .formats.pdf import write_pdf
+from .formats.sarif import write_sarif
 
 logger = logging.getLogger(__name__)
 

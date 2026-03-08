@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Any
 
-from .utils import strip_comments, strip_interfaces, extract_functions
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -18,6 +18,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import extract_functions, strip_comments, strip_interfaces
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class ReentrancyDetector:
         return findings
 
     def _check_cei_violation(
-        self, filename: str, functions: list[dict]
+        self, filename: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect Check-Effects-Interactions pattern violations.
 
@@ -104,19 +105,32 @@ class ReentrancyDetector:
                     if match:
                         var_name = match.group(1)
                         # Skip local variable declarations and common local names
-                        if re.search(rf'\b(uint|int|bool|address|bytes|string|mapping)\b.*\b{re.escape(var_name)}\b', line):
+                        esc = re.escape(var_name)
+                        if re.search(
+                            rf'\b(uint|int|bool|address|bytes|string|mapping)\b.*\b{esc}\b',
+                            line,
+                        ):
                             continue
-                        if var_name in ('success', 'result', 'ret', 'data', 'amount', 'i', 'j', 'k'):
+                        local_names = (
+                            'success', 'result', 'ret', 'data',
+                            'amount', 'i', 'j', 'k',
+                        )
+                        if var_name in local_names:
                             # Check if declared locally in function
-                            if re.search(rf'\b(uint|int|bool|address)\d*\s+{re.escape(var_name)}\b', func['body']):
+                            if re.search(
+                                rf'\b(uint|int|bool|address)\d*\s+{esc}\b',
+                                func['body'],
+                            ):
                                 continue
 
                         findings.append(
                             Finding(
                                 title=f"CEI Violation in {func['name']}()",
                                 description=(
-                                    f"State variable `{var_name}` is updated after an external call "
-                                    f"in `{func['name']}()`. This violates the Check-Effects-Interactions "
+                                    f"State variable `{var_name}` is updated "
+                                    "after an external call "
+                                    f"in `{func['name']}()`. This violates the "
+                                    "Check-Effects-Interactions "
                                     "pattern and may allow reentrancy attacks.\n\n"
                                     "**Fix:** Move all state changes before external calls."
                                 ),
@@ -141,7 +155,7 @@ class ReentrancyDetector:
         return findings
 
     def _check_cross_function_reentrancy(
-        self, filename: str, functions: list[dict]
+        self, filename: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect cross-function reentrancy.
 
@@ -218,7 +232,7 @@ class ReentrancyDetector:
         return findings
 
     def _check_missing_reentrancy_guard(
-        self, filename: str, functions: list[dict]
+        self, filename: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect functions with ETH transfers or external calls missing reentrancy guards."""
         findings: list[Finding] = []
@@ -273,7 +287,7 @@ class ReentrancyDetector:
         return findings
 
     def _check_read_only_reentrancy(
-        self, filename: str, source: str, functions: list[dict]
+        self, filename: str, source: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect read-only reentrancy.
 

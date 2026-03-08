@@ -68,7 +68,8 @@ class GasGriefingDetector:
                             Finding(
                                 title=f"Unbounded {loop_type.title()} Loop",
                                 description=(
-                                    f"A `{loop_type}` loop iterates over an unbounded array/mapping. "
+                                    f"A `{loop_type}` loop iterates over an "
+                                    "unbounded array/mapping. "
                                     "An attacker can force the array to grow large enough to "
                                     "cause the transaction to run out of gas, permanently blocking "
                                     "contract functionality (DoS via gas exhaustion)."
@@ -155,8 +156,10 @@ class GasGriefingDetector:
                         title="Potential DoS: require() After External Call",
                         description=(
                             "A `require()` check on an external call result can be used for DoS. "
-                            "If the callee is a user-controlled contract that always reverts, "
-                            "this function becomes permanently unusable. Consider using pull-payment."
+                            "If the callee is a user-controlled contract "
+                            "that always reverts, "
+                            "this function becomes permanently unusable. "
+                            "Consider using pull-payment."
                         ),
                         severity=Severity.LOW,
                         confidence=Confidence.LOW,

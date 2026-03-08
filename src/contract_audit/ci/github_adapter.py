@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from ..core.models import AuditResult, Severity
+from ..core.models import AuditResult, Finding
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,6 @@ class GitHubAdapter:
             logger.warning("No GITHUB_TOKEN, skipping PR comment")
             return False
 
-        summary = result.summary
         comment = self._build_comment(result, report_content)
 
         try:
@@ -170,7 +169,7 @@ class GitHubAdapter:
 
     def filter_findings_by_diff(
         self, result: AuditResult, base_ref: str = "origin/main"
-    ) -> list:
+    ) -> list[Finding]:
         """Filter findings to only those in changed files/lines."""
         try:
             proc = subprocess.run(

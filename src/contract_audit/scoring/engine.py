@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 
-from ..core.models import AuditResult, Confidence, Finding, Severity
+from ..core.models import Confidence, Finding
 from .weights import (
     CATEGORY_MULTIPLIERS,
     CONFIDENCE_MULTIPLIERS,

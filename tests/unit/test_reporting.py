@@ -1,8 +1,6 @@
 """Unit tests for reporting modules."""
 
 import json
-import pytest
-from pathlib import Path
 
 from contract_audit.core.models import (
     AuditMetadata,

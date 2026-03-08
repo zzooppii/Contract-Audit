@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class SummarizeTask:
     """Generates executive summary using Gemini Pro."""
 
-    def __init__(self, router: "LLMRouter") -> None:
+    def __init__(self, router: LLMRouter) -> None:
         self.router = router
 
     async def run(self, findings: list[Finding]) -> str:

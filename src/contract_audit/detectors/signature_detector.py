@@ -178,7 +178,7 @@ class SignatureDetector:
 
     def _check_s_malleability(self, filename: str, source: str) -> list[Finding]:
         """Check for signature malleability (s-value in upper half)."""
-        findings = []
+        findings: list[Finding] = []
         lines = source.splitlines()
 
         # Only relevant if using raw ecrecover (not ECDSA library)
@@ -192,7 +192,7 @@ class SignatureDetector:
             func_body = self._get_enclosing_function(lines, i - 1)
 
             # Check if s-value is validated
-            # Standard check: s <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0
+            # Standard check: s <= secp256k1n/2
             has_s_check = bool(re.search(
                 r'0x7[Ff]{63}5[Dd]576[Ee]7357[Aa]4501[Dd]{2}[Ff][Ee]92[Ff]46681[Bb]20[Aa]0|'
                 r'\bs\s*<=?\s*|'

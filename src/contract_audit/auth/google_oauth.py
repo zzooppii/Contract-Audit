@@ -66,7 +66,8 @@ class GoogleOAuth:
                 timeout=10,
             )
             response.raise_for_status()
-            return response.json()
+            result: dict[str, Any] = response.json()
+            return result
         except Exception as e:
             logger.warning(f"Failed to get user info: {e}")
             return None

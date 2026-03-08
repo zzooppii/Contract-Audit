@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import shutil
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -53,7 +51,7 @@ class HevmRunner:
             logger.info(f"hevm found {len(violations)} violations")
             return violations
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(f"hevm timed out after {timeout}s")
             return []
         except Exception as e:

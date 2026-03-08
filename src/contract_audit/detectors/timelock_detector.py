@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 import re
 
-from .utils import strip_comments
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -22,6 +21,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import strip_comments
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,10 @@ class TimelockDetector:
 
         for filename, source in context.contract_sources.items():
             clean = strip_comments(source)
-            if not re.search(r'\b(timelock|delay|queue|vesting|cliff|unlock|schedule)\b', clean, re.IGNORECASE):
+            if not re.search(
+                r'\b(timelock|delay|queue|vesting|cliff|unlock|schedule)\b',
+                clean, re.IGNORECASE,
+            ):
                 continue
             findings.extend(self._check_zero_delay(filename, clean, min_delay))
             findings.extend(self._check_execute_without_queue(filename, clean))
@@ -90,7 +93,9 @@ class TimelockDetector:
                 ))
 
         # Check for setDelay/updateDelay without minimum check
-        set_delay_funcs = self._find_functions(lines, r'\bfunction\s+(set\w*[Dd]elay\w*|updateDelay\w*)\s*\(')
+        set_delay_funcs = self._find_functions(
+            lines, r'\bfunction\s+(set\w*[Dd]elay\w*|updateDelay\w*)\s*\(',
+        )
         for func_name, line_num in set_delay_funcs:
             body = self._get_function_body(lines, line_num - 1)
             has_min_check = bool(re.search(
@@ -112,7 +117,9 @@ class TimelockDetector:
                     category=FindingCategory.TIMELOCK_BYPASS,
                     source=self.name,
                     detector_name="no-minimum-delay-check",
-                    locations=[SourceLocation(file=filename, start_line=line_num, end_line=line_num)],
+                    locations=[SourceLocation(
+                        file=filename, start_line=line_num, end_line=line_num,
+                    )],
                     metadata={"function": func_name},
                 ))
 
@@ -156,7 +163,9 @@ class TimelockDetector:
                     category=FindingCategory.TIMELOCK_BYPASS,
                     source=self.name,
                     detector_name="execute-without-queue",
-                    locations=[SourceLocation(file=filename, start_line=line_num, end_line=line_num)],
+                    locations=[SourceLocation(
+                        file=filename, start_line=line_num, end_line=line_num,
+                    )],
                     metadata={"function": func_name},
                 ))
 
@@ -189,7 +198,9 @@ class TimelockDetector:
                     category=FindingCategory.TIMELOCK_BYPASS,
                     source=self.name,
                     detector_name="unprotected-cancel",
-                    locations=[SourceLocation(file=filename, start_line=line_num, end_line=line_num)],
+                    locations=[SourceLocation(
+                        file=filename, start_line=line_num, end_line=line_num,
+                    )],
                     metadata={"function": func_name},
                 ))
 
@@ -233,7 +244,9 @@ class TimelockDetector:
                     category=FindingCategory.TIMELOCK_BYPASS,
                     source=self.name,
                     detector_name="vesting-cliff-bypass",
-                    locations=[SourceLocation(file=filename, start_line=line_num, end_line=line_num)],
+                    locations=[SourceLocation(
+                        file=filename, start_line=line_num, end_line=line_num,
+                    )],
                     metadata={"function": func_name},
                 ))
 
@@ -245,7 +258,10 @@ class TimelockDetector:
         lines = source.splitlines()
 
         for i, line in enumerate(lines, 1):
-            if re.search(r'block\.timestamp\s*[<>=]+\s*\w*(unlock|release|end)\w*', line, re.IGNORECASE):
+            if re.search(
+                r'block\.timestamp\s*[<>=]+\s*\w*(unlock|release|end)\w*',
+                line, re.IGNORECASE,
+            ):
                 findings.append(Finding(
                     title="Timestamp-Dependent Unlock",
                     description=(

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -26,7 +25,7 @@ class TriageResult(BaseModel):
 class TriageTask:
     """Binary false-positive classification using Gemini Flash."""
 
-    def __init__(self, router: "LLMRouter") -> None:
+    def __init__(self, router: LLMRouter) -> None:
         self.router = router
 
     async def classify(self, finding: Finding, source_snippet: str = "") -> bool:
@@ -69,7 +68,6 @@ class TriageTask:
                 return result.is_false_positive
 
             # Parse from content if structured output failed
-            import re
             content = response.content
             if '"is_false_positive": true' in content or '"is_false_positive":true' in content:
                 return True

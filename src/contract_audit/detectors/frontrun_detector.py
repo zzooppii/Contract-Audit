@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-
-from .utils import strip_comments, strip_interfaces, extract_functions
+from typing import Any
 
 from ..core.models import (
     AuditContext,
@@ -19,6 +18,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import extract_functions, strip_comments, strip_interfaces
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,6 @@ class FrontrunDetector:
         for filename, source in context.contract_sources.items():
             clean = strip_comments(source)
             clean = strip_interfaces(clean)
-            lines = clean.splitlines()
             functions = extract_functions(clean)
 
             findings.extend(self._check_missing_slippage(filename, functions))
@@ -48,7 +47,7 @@ class FrontrunDetector:
         return findings
 
     def _check_missing_slippage(
-        self, filename: str, functions: list[dict]
+        self, filename: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect swap/trade functions without minAmountOut or slippage params."""
         findings: list[Finding] = []
@@ -98,7 +97,7 @@ class FrontrunDetector:
         return findings
 
     def _check_missing_deadline(
-        self, filename: str, functions: list[dict]
+        self, filename: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect DEX functions without deadline checks."""
         findings: list[Finding] = []
@@ -155,7 +154,7 @@ class FrontrunDetector:
         return findings
 
     def _check_commit_reveal_absence(
-        self, filename: str, source: str, functions: list[dict]
+        self, filename: str, source: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect bid/auction functions without commit-reveal pattern."""
         findings: list[Finding] = []
@@ -207,7 +206,7 @@ class FrontrunDetector:
         return findings
 
     def _check_sandwich_vulnerable(
-        self, filename: str, functions: list[dict]
+        self, filename: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect functions that modify reserves and transfer in same call without protection."""
         findings: list[Finding] = []

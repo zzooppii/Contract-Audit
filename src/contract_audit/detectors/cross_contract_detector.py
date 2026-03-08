@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import TYPE_CHECKING
 
-from .utils import strip_comments
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -18,6 +18,10 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import strip_comments
+
+if TYPE_CHECKING:
+    from ..analyzers.cross_contract.call_graph import CallGraph
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +40,9 @@ class CrossContractDetector:
             return findings
 
         # Build graphs
+        from ..analyzers.cross_contract.call_graph import CallGraph
         from ..analyzers.cross_contract.import_resolver import ImportResolver
         from ..analyzers.cross_contract.inheritance_graph import InheritanceGraph
-        from ..analyzers.cross_contract.call_graph import CallGraph
 
         import_graph = ImportResolver().resolve(context.contract_sources)
         inheritance_map = InheritanceGraph().build(context.contract_sources)
@@ -65,7 +69,7 @@ class CrossContractDetector:
 
     def _check_cross_contract_reentrancy(
         self,
-        builder: "CallGraph",
+        builder: CallGraph,
         call_graph: dict[str, list[tuple[str, str]]],
         context: AuditContext,
     ) -> list[Finding]:
@@ -140,9 +144,9 @@ class CrossContractDetector:
                 for func_name, line_num in child_funcs.items():
                     if func_name in parent_funcs:
                         # Check if override keyword is used
-                        filename = self._find_contract_file(contract_name, context)
-                        if filename:
-                            source = context.contract_sources[filename]
+                        contract_file = self._find_contract_file(contract_name, context)
+                        if contract_file:
+                            source = context.contract_sources[contract_file]
                             # Find the function and check for override
                             pattern = re.compile(
                                 rf'\bfunction\s+{re.escape(func_name)}\s*\([^)]*\)[^{{]*',
@@ -167,7 +171,7 @@ class CrossContractDetector:
                                         detector_name="function-shadowing",
                                         locations=[
                                             SourceLocation(
-                                                file=filename,
+                                                file=contract_file,
                                                 start_line=line_num,
                                                 end_line=line_num,
                                                 function=func_name,
@@ -241,10 +245,13 @@ class CrossContractDetector:
 
                     missing = required - implemented
                     if missing:
-                        filename = self._find_contract_file(contract_name, context)
+                        iface_file = self._find_contract_file(contract_name, context)
                         findings.append(
                             Finding(
-                                title=f"Interface Mismatch: {contract_name} missing {parent} functions",
+                                title=(
+                                    f"Interface Mismatch: {contract_name} "
+                                    f"missing {parent} functions"
+                                ),
                                 description=(
                                     f"`{contract_name}` declares `is {parent}` but does not "
                                     f"implement: {', '.join(sorted(missing))}. This will "
@@ -258,7 +265,7 @@ class CrossContractDetector:
                                 detector_name="interface-mismatch",
                                 locations=[
                                     SourceLocation(
-                                        file=filename or contract_name,
+                                        file=iface_file or contract_name,
                                         start_line=1,
                                         end_line=1,
                                         contract=contract_name,

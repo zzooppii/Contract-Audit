@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import re
 
-from .utils import strip_comments
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -21,6 +20,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import strip_comments
 
 logger = logging.getLogger(__name__)
 
@@ -75,14 +75,17 @@ class MerkleDetector:
                     description=(
                         f"`{func_name}()` does not track claimed status. "
                         "Users can call this function multiple times to drain the airdrop. "
-                        "Add a `mapping(address => bool) public claimed` and check/set it in the claim function."
+                        "Add a `mapping(address => bool) public claimed` "
+                        "and check/set it in the claim function."
                     ),
                     severity=Severity.CRITICAL,
                     confidence=Confidence.HIGH,
                     category=FindingCategory.MERKLE_AIRDROP,
                     source=self.name,
                     detector_name="missing-duplicate-claim-protection",
-                    locations=[SourceLocation(file=filename, start_line=line_num, end_line=line_num)],
+                    locations=[SourceLocation(
+                        file=filename, start_line=line_num, end_line=line_num,
+                    )],
                     metadata={"function": func_name},
                 ))
 
@@ -194,7 +197,9 @@ class MerkleDetector:
                     category=FindingCategory.MERKLE_AIRDROP,
                     source=self.name,
                     detector_name="frontrun-claim",
-                    locations=[SourceLocation(file=filename, start_line=line_num, end_line=line_num)],
+                    locations=[SourceLocation(
+                        file=filename, start_line=line_num, end_line=line_num,
+                    )],
                     metadata={"function": func_name},
                 ))
 

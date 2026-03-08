@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
-from ...core.models import AuditResult, Finding, Severity
+from ...core.models import AuditResult, Severity, SourceLocation
 
 SEVERITY_EMOJI: dict[Severity, str] = {
     Severity.CRITICAL: "🔴",
@@ -34,10 +33,10 @@ def generate_markdown(result: AuditResult) -> str:
     meta = result.metadata
 
     # Header
-    lines.append(f"# Smart Contract Security Audit Report")
+    lines.append("# Smart Contract Security Audit Report")
     lines.append("")
-    lines.append(f"| Field | Value |")
-    lines.append(f"|-------|-------|")
+    lines.append("| Field | Value |")
+    lines.append("|-------|-------|")
     lines.append(f"| **Date** | {datetime.utcnow().strftime('%Y-%m-%d')} |")
     lines.append(f"| **Engine** | contract-audit v{meta.engine_version} |")
     lines.append(f"| **Risk Score** | {s.overall_risk_score}/10 |")
@@ -201,9 +200,9 @@ def generate_markdown(result: AuditResult) -> str:
         for i, finding in enumerate(sev_findings, 1):
             prefix = SEVERITY_PREFIX[severity]
             label = f"{prefix}-{i:02d}"
-            loc = finding.primary_location()
-            file_str = f"`{loc.file}`" if loc else "-"
-            line_str = str(loc.start_line) if loc else "-"
+            finding_loc: SourceLocation | None = finding.primary_location()
+            file_str = f"`{finding_loc.file}`" if finding_loc else "-"
+            line_str = str(finding_loc.start_line) if finding_loc else "-"
             lines.append(
                 f"| {label} | {finding.title} | {file_str} | {line_str} | "
                 f"`{finding.detector_name}` |"

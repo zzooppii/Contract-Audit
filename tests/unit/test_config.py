@@ -1,10 +1,7 @@
 """Unit tests for configuration loading."""
 
-import pytest
-import tempfile
-from pathlib import Path
 
-from contract_audit.core.config import load_config, FullConfig
+from contract_audit.core.config import FullConfig, load_config
 
 
 class TestLoadConfig:

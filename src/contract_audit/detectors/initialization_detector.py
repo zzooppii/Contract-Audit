@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-
-from .utils import strip_comments, strip_interfaces, extract_functions
+from typing import Any
 
 from ..core.models import (
     AuditContext,
@@ -19,6 +18,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import extract_functions, strip_comments, strip_interfaces
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +40,16 @@ class InitializationDetector:
 
             findings.extend(self._check_missing_initializer_modifier(filename, functions))
             findings.extend(self._check_reinitializable(filename, clean, functions))
-            findings.extend(self._check_constructor_initializer_conflict(filename, clean, functions))
+            findings.extend(self._check_constructor_initializer_conflict(
+                filename, clean, functions
+            ))
             findings.extend(self._check_missing_disable_initializers(filename, clean, functions))
 
         logger.info(f"Initialization detector found {len(findings)} findings")
         return findings
 
     def _check_missing_initializer_modifier(
-        self, filename: str, functions: list[dict]
+        self, filename: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect initialize() functions without initializer modifier."""
         findings: list[Finding] = []
@@ -92,7 +94,7 @@ class InitializationDetector:
         return findings
 
     def _check_reinitializable(
-        self, filename: str, source: str, functions: list[dict]
+        self, filename: str, source: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect initializers that can be called multiple times."""
         findings: list[Finding] = []
@@ -145,7 +147,7 @@ class InitializationDetector:
         return findings
 
     def _check_constructor_initializer_conflict(
-        self, filename: str, source: str, functions: list[dict]
+        self, filename: str, source: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect contracts with both constructor and initialize()."""
         findings: list[Finding] = []
@@ -203,7 +205,7 @@ class InitializationDetector:
         return findings
 
     def _check_missing_disable_initializers(
-        self, filename: str, source: str, functions: list[dict]
+        self, filename: str, source: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect upgradeable contracts missing _disableInitializers() in constructor."""
         findings: list[Finding] = []

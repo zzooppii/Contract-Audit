@@ -1,16 +1,16 @@
 """Unit tests for LLM task modules."""
 
 import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
 
 from contract_audit.core.models import (
     Confidence,
     Finding,
     FindingCategory,
     Severity,
-    SourceLocation,
 )
 
 

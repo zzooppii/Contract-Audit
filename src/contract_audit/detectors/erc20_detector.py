@@ -13,8 +13,6 @@ from __future__ import annotations
 import logging
 import re
 
-from .utils import strip_interfaces
-
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -23,6 +21,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import strip_interfaces
 
 logger = logging.getLogger(__name__)
 
@@ -92,12 +91,15 @@ class ERC20Detector:
                         Finding(
                             title="Missing Transfer Event in ERC20",
                             description=(
-                                "The `transfer()` function does not emit a `Transfer` event. "
-                                "This breaks ERC20 spec compliance (EIP-20 requires Transfer events). "
-                                "Wallets, block explorers, and DeFi protocols rely on Transfer events "
-                                "to track token movements.\n\n"
-                                "**Fix:** Define `event Transfer(address indexed from, address indexed to, "
-                                "uint256 value)` and emit it in transfer/transferFrom."
+                                "The `transfer()` function does not emit a "
+                                "`Transfer` event. This breaks ERC20 spec "
+                                "compliance (EIP-20 requires Transfer events). "
+                                "Wallets, block explorers, and DeFi protocols "
+                                "rely on Transfer events to track token "
+                                "movements.\n\n"
+                                "**Fix:** Define `event Transfer(address "
+                                "indexed from, address indexed to, uint256 "
+                                "value)` and emit it in transfer/transferFrom."
                             ),
                             severity=Severity.MEDIUM,
                             confidence=Confidence.HIGH,
@@ -194,8 +196,6 @@ class ERC20Detector:
         findings = []
         lines = source.splitlines()
 
-        contract_body = strip_interfaces(source)
-
         for i, line in enumerate(lines, 1):
             if re.search(r'\bfunction\s+transfer\s*\(', line):
                 func_body = self._get_function_body(lines, i - 1)
@@ -243,8 +243,6 @@ class ERC20Detector:
         """Check for minting without supply cap."""
         findings = []
         lines = source.splitlines()
-
-        contract_body = strip_interfaces(source)
 
         for i, line in enumerate(lines, 1):
             if re.search(r'\bfunction\s+mint\b', line):

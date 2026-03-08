@@ -112,7 +112,7 @@ class RandomnessDetector:
 
     def _check_blockhash_reliance(self, filename: str, source: str) -> list[Finding]:
         """Check for blockhash usage without 256-block limit handling."""
-        findings = []
+        findings: list[Finding] = []
         lines = source.splitlines()
 
         # Strip comments

@@ -9,9 +9,12 @@ logger = logging.getLogger(__name__)
 
 MYTHRIL_AVAILABLE = False
 try:
-    from mythril.mythril import MythrilDisassembler, MythrilAnalyzer
-    from mythril.analysis.report import Report
-    MYTHRIL_AVAILABLE = True
+    import importlib.util
+    if (
+        importlib.util.find_spec("mythril.analysis.report")
+        and importlib.util.find_spec("mythril.mythril")
+    ):
+        MYTHRIL_AVAILABLE = True
 except ImportError:
     logger.debug("Mythril not installed")
 
@@ -44,8 +47,7 @@ class MythrilRunner:
     ) -> list[dict[str, Any]]:
         """Synchronous Mythril execution."""
         try:
-            from mythril.mythril import MythrilDisassembler, MythrilAnalyzer
-            from mythril.analysis.report import Report
+            from mythril.mythril import MythrilAnalyzer, MythrilDisassembler
 
             disassembler = MythrilDisassembler()
             disassembler.load_from_solidity([source_file])

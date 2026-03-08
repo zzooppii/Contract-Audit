@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class PoCGenerateTask:
     """Generates Foundry exploit PoC tests using Claude Opus."""
 
-    def __init__(self, router: "LLMRouter") -> None:
+    def __init__(self, router: LLMRouter) -> None:
         self.router = router
 
     async def run(self, finding: Finding, source_snippet: str = "") -> str:

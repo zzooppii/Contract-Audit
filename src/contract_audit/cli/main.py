@@ -12,11 +12,9 @@ Commands:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -50,29 +48,29 @@ def audit(
     path: Path = typer.Argument(
         ..., help="Path to the Solidity project or contracts directory"
     ),
-    config: Optional[Path] = typer.Option(
+    config: Path | None = typer.Option(
         None, "--config", "-c", help="Path to audit config TOML file"
     ),
-    output_dir: Optional[Path] = typer.Option(
+    output_dir: Path | None = typer.Option(
         None, "--output", "-o", help="Output directory for reports"
     ),
-    output_sarif: Optional[Path] = typer.Option(
+    output_sarif: Path | None = typer.Option(
         None, "--output-sarif", help="Output SARIF file path"
     ),
-    output_markdown: Optional[Path] = typer.Option(
+    output_markdown: Path | None = typer.Option(
         None, "--output-markdown", help="Output Markdown report path"
     ),
-    output_json: Optional[Path] = typer.Option(
+    output_json: Path | None = typer.Option(
         None, "--output-json", help="Output JSON report path"
     ),
-    formats: Optional[str] = typer.Option(
+    formats: str | None = typer.Option(
         None, "--formats", "-f", help="Comma-separated report formats: sarif,json,markdown,html"
     ),
-    severity_filter: Optional[str] = typer.Option(
+    severity_filter: str | None = typer.Option(
         None, "--severity", "-s",
         help="Minimum severity to include: Critical,High,Medium,Low,Informational"
     ),
-    compare_to: Optional[Path] = typer.Option(
+    compare_to: Path | None = typer.Option(
         None, "--compare-to", help="Path to previous audit JSON for comparison"
     ),
     no_llm: bool = typer.Option(False, "--no-llm", help="Disable LLM enrichment"),
@@ -175,7 +173,10 @@ def audit(
             )
             raise typer.Exit(1)
 
-    console.print(f"\n[green]Audit complete.[/green] Risk score: [bold]{result.summary.overall_risk_score}/10[/bold]")
+    score = result.summary.overall_risk_score
+    console.print(
+        f"\n[green]Audit complete.[/green] Risk score: [bold]{score}/10[/bold]"
+    )
 
 
 @app.command()
@@ -223,7 +224,7 @@ def login(
         oauth = AnthropicOAuth(token_store)
         try:
             console.print("Opening browser for Anthropic login...")
-            token = oauth.login_browser()
+            oauth.login_browser()
             console.print("[green]Successfully logged in to Anthropic[/green]")
         except Exception as e:
             err_console.print(f"[red]Anthropic login failed:[/red] {e}")
@@ -234,11 +235,11 @@ def login(
 
     if google:
         from ..auth.google_oauth import GoogleOAuth
-        oauth = GoogleOAuth(token_store)
+        google_oauth = GoogleOAuth(token_store)
         try:
             console.print("Opening browser for Google login...")
-            token = oauth.login_browser()
-            user_info = oauth.get_user_info()
+            google_oauth.login_browser()
+            user_info = google_oauth.get_user_info()
             name = user_info.get("name", "unknown") if user_info else "unknown"
             console.print(f"[green]Successfully logged in as {name}[/green]")
         except Exception as e:
@@ -284,38 +285,38 @@ def version() -> None:
         console.print(f"{tool}: {installed}")
 
 
-def _build_pipeline(audit_config: "Any", llm_config: "Any") -> "Any":
+def _build_pipeline(audit_config: Any, llm_config: Any) -> Any:
     """Build the pipeline with configured analyzers and detectors."""
+    from ..analyzers.aderyn.analyzer import AderynAnalyzer
     from ..analyzers.ast_parser.analyzer import ASTAnalyzer
     from ..analyzers.slither.analyzer import SlitherAnalyzer
-    from ..analyzers.aderyn.analyzer import AderynAnalyzer
-    from ..detectors.proxy_detector import ProxyDetector
+    from ..core.pipeline import PipelineOrchestrator
+    from ..detectors.access_control_detector import AccessControlDetector
+    from ..detectors.bridge_detector import BridgeDetector
+    from ..detectors.cross_contract_detector import CrossContractDetector
+    from ..detectors.erc20_detector import ERC20Detector
+    from ..detectors.erc4626_detector import ERC4626Detector
     from ..detectors.flash_loan_detector import FlashLoanDetector
-    from ..detectors.oracle_detector import OracleDetector
-    from ..detectors.storage_collision import StorageCollisionDetector
+    from ..detectors.frontrun_detector import FrontrunDetector
     from ..detectors.gas_griefing import GasGriefingDetector
     from ..detectors.governance_detector import GovernanceDetector
-    from ..detectors.access_control_detector import AccessControlDetector
-    from ..detectors.erc20_detector import ERC20Detector
-    from ..detectors.signature_detector import SignatureDetector
-    from ..detectors.randomness_detector import RandomnessDetector
-    from ..detectors.merkle_detector import MerkleDetector
-    from ..detectors.timelock_detector import TimelockDetector
-    from ..detectors.reentrancy_detector import ReentrancyDetector
-    from ..detectors.unchecked_call_detector import UncheckedCallDetector
-    from ..detectors.nft_detector import NFTDetector
-    from ..detectors.bridge_detector import BridgeDetector
-    from ..detectors.integer_detector import IntegerDetector
-    from ..detectors.frontrun_detector import FrontrunDetector
     from ..detectors.initialization_detector import InitializationDetector
-    from ..detectors.erc4626_detector import ERC4626Detector
+    from ..detectors.integer_detector import IntegerDetector
+    from ..detectors.merkle_detector import MerkleDetector
+    from ..detectors.nft_detector import NFTDetector
+    from ..detectors.oracle_detector import OracleDetector
     from ..detectors.pragma_detector import PragmaDetector
-    from ..detectors.cross_contract_detector import CrossContractDetector
+    from ..detectors.proxy_detector import ProxyDetector
+    from ..detectors.randomness_detector import RandomnessDetector
+    from ..detectors.reentrancy_detector import ReentrancyDetector
+    from ..detectors.signature_detector import SignatureDetector
+    from ..detectors.storage_collision import StorageCollisionDetector
+    from ..detectors.timelock_detector import TimelockDetector
+    from ..detectors.unchecked_call_detector import UncheckedCallDetector
     from ..scoring.engine import RiskScoringEngine
     from ..scoring.false_positive import FalsePositiveReducer
-    from ..core.pipeline import PipelineOrchestrator
 
-    analyzers = []
+    analyzers: list[Any] = []
     if audit_config.ast_parser_enabled:
         analyzers.append(ASTAnalyzer())
     if audit_config.slither_enabled:
@@ -323,7 +324,7 @@ def _build_pipeline(audit_config: "Any", llm_config: "Any") -> "Any":
     if audit_config.aderyn_enabled:
         analyzers.append(AderynAnalyzer())
 
-    detectors = []
+    detectors: list[Any] = []
     if audit_config.proxy_detector_enabled:
         detectors.append(ProxyDetector())
     if audit_config.flash_loan_detector_enabled:
@@ -391,7 +392,7 @@ def _build_pipeline(audit_config: "Any", llm_config: "Any") -> "Any":
     )
 
 
-def _build_llm_router(llm_config: "Any") -> "Any | None":
+def _build_llm_router(llm_config: Any) -> Any | None:
     """Build the LLM router from config."""
     try:
         from ..auth.token_store import TokenStore
@@ -405,11 +406,11 @@ def _build_llm_router(llm_config: "Any") -> "Any | None":
 
 
 def _generate_reports(
-    result: "Any",
-    config: "Any",
-    output_sarif: "Path | None" = None,
-    output_markdown: "Path | None" = None,
-    output_json: "Path | None" = None,
+    result: Any,
+    config: Any,
+    output_sarif: Path | None = None,
+    output_markdown: Path | None = None,
+    output_json: Path | None = None,
 ) -> None:
     """Generate reports in all configured formats."""
     from ..reporting.generator import ReportGenerator
@@ -456,7 +457,7 @@ _SEV_STYLE: dict[str, tuple[str, str]] = {
 }
 
 
-def _print_summary(result: "Any") -> None:
+def _print_summary(result: Any) -> None:
     """Print detailed findings and summary table to the terminal."""
     from rich.syntax import Syntax
 
@@ -469,7 +470,7 @@ def _print_summary(result: "Any") -> None:
 
     # Group by severity in order
     sev_order = ["Critical", "High", "Medium", "Low", "Informational", "Gas"]
-    by_sev: dict[str, list] = {s: [] for s in sev_order}
+    by_sev: dict[str, list[Any]] = {s: [] for s in sev_order}
     for f in active:
         by_sev.setdefault(f.severity.value, []).append(f)
 

@@ -3,21 +3,13 @@
 from __future__ import annotations
 
 import hashlib
-import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from .models import AuditConfig
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    try:
-        import tomllib
-    except ImportError:
-        import tomli as tomllib  # type: ignore[no-reuse-import]
 
 
 class TaskRoute(BaseModel):
@@ -101,7 +93,7 @@ def load_config(config_path: Path | None = None) -> FullConfig:
     return _parse_config(raw)
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge override into base."""
     result = base.copy()
     for key, value in override.items():

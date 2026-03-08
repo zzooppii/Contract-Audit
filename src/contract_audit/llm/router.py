@@ -7,10 +7,10 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from ..auth.token_store import TokenStore
 from ..core.config import LLMConfig, TaskRoute
 from ..core.exceptions import BudgetExhaustedError
 from ..core.models import LLMResponse
-from ..auth.token_store import TokenStore
 from .cost import BudgetTracker
 from .providers.anthropic_provider import AnthropicProvider
 from .providers.google_provider import GoogleProvider
@@ -41,12 +41,12 @@ class LLMRouter:
 
         if "google" in config.providers:
             pcfg = config.providers["google"]
-            provider = GoogleProvider(
+            google_provider = GoogleProvider(
                 token_store=token_store,
                 fallback_api_key_env=pcfg.api_key_env or "GOOGLE_AI_API_KEY",
             )
-            if provider.is_available():
-                self.providers["google"] = provider
+            if google_provider.is_available():
+                self.providers["google"] = google_provider
                 logger.info("Google provider initialized")
             else:
                 logger.warning("Google provider: no credentials found")
@@ -67,7 +67,8 @@ class LLMRouter:
         """Route and execute an LLM task.
 
         Args:
-            task_type: Task identifier ("triage", "explain", "remediate", "poc_generate", "summarize")
+            task_type: Task identifier
+                ("triage", "explain", "remediate", etc.)
             messages: Conversation messages
             response_schema: Optional Pydantic model for structured output
             temperature: Sampling temperature
@@ -115,7 +116,7 @@ class LLMRouter:
 
         logger.debug(f"Routing task '{task_type}' to {provider_name}:{model}")
 
-        response = await provider.complete(
+        response: LLMResponse = await provider.complete(
             messages=messages,
             model=model,
             response_schema=response_schema,
@@ -131,7 +132,7 @@ class LLMRouter:
 
         return response
 
-    def get_budget_summary(self) -> dict:
+    def get_budget_summary(self) -> dict[str, Any]:
         """Get current budget usage summary."""
         return self.budget_tracker.summary()
 

@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import re
 
-from .utils import strip_comments, strip_interfaces, extract_functions
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -18,6 +17,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import extract_functions, strip_comments, strip_interfaces
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +78,14 @@ class UncheckedCallDetector:
                 call_type = re.search(r'\.(call|delegatecall|staticcall)', line)
                 findings.append(
                     Finding(
-                        title=f"Unchecked Low-level {call_type.group(1) if call_type else 'call'}()",
+                        title=(
+                            "Unchecked Low-level "
+                            f"{call_type.group(1) if call_type else 'call'}()"
+                        ),
                         description=(
-                            f"Low-level `{call_type.group(1) if call_type else 'call'}()` return value is not checked. "
+                            "Low-level "
+                            f"`{call_type.group(1) if call_type else 'call'}"
+                            "()` return value is not checked. "
                             "If the call fails silently, the contract will continue execution "
                             "with incorrect assumptions.\n\n"
                             "**Fix:** Capture and check the return value: "

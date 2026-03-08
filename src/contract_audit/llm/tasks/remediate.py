@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class RemediateTask:
     """Generates code patches for findings using LLM."""
 
-    def __init__(self, router: "LLMRouter") -> None:
+    def __init__(self, router: LLMRouter) -> None:
         self.router = router
 
     async def run(self, finding: Finding, source_snippet: str = "") -> str:
@@ -40,7 +40,8 @@ class RemediateTask:
                     "content": (
                         "You are an expert smart contract security engineer. "
                         "Provide concrete, production-ready Solidity code fixes. "
-                        "Show before/after diffs and explain why each change addresses the root cause."
+                        "Show before/after diffs and explain why each "
+                        "change addresses the root cause."
                     ),
                 },
                 {"role": "user", "content": prompt},

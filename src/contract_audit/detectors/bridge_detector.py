@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-
-from .utils import strip_comments, strip_interfaces, extract_functions
+from typing import Any
 
 from ..core.models import (
     AuditContext,
@@ -19,6 +18,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import extract_functions, strip_comments, strip_interfaces
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ class BridgeDetector:
         return findings
 
     def _check_missing_chain_id(
-        self, filename: str, source: str, functions: list[dict]
+        self, filename: str, source: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect message verification without chain ID binding."""
         findings: list[Finding] = []
@@ -147,7 +147,7 @@ class BridgeDetector:
         return findings
 
     def _check_replay_attack(
-        self, filename: str, source: str, functions: list[dict]
+        self, filename: str, source: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect missing nonce/message ID tracking for replay prevention."""
         findings: list[Finding] = []
@@ -180,7 +180,8 @@ class BridgeDetector:
                             "tracking processed message IDs/nonces. The same message "
                             "can be submitted multiple times to drain funds.\n\n"
                             "**Fix:** Track processed message hashes in a mapping and "
-                            "reject duplicates: `require(!processed[msgHash]); processed[msgHash] = true;`"
+                            "reject duplicates: "
+                            "`require(!processed[msgHash]); processed[msgHash] = true;`"
                         ),
                         severity=Severity.CRITICAL,
                         confidence=Confidence.HIGH,
@@ -201,7 +202,7 @@ class BridgeDetector:
         return findings
 
     def _check_arbitrary_delegatecall(
-        self, filename: str, functions: list[dict]
+        self, filename: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect delegatecall to parameter-supplied addresses in bridge context."""
         findings: list[Finding] = []
@@ -219,7 +220,8 @@ class BridgeDetector:
                         Finding(
                             title=f"Arbitrary Delegatecall in Bridge: {func['name']}()",
                             description=(
-                                f"`{func['name']}()` performs `delegatecall` to parameter `{param}`. "
+                                f"`{func['name']}()` performs `delegatecall` "
+                                f"to parameter `{param}`. "
                                 "In a bridge context, this allows arbitrary code execution "
                                 "in the contract's storage context, enabling theft of all "
                                 "bridged assets.\n\n"
@@ -245,7 +247,7 @@ class BridgeDetector:
         return findings
 
     def _check_missing_relayer_validation(
-        self, filename: str, functions: list[dict]
+        self, filename: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect token release/mint functions without access control."""
         findings: list[Finding] = []
@@ -288,9 +290,11 @@ class BridgeDetector:
                         title=f"Missing Relayer Validation: {func['name']}()",
                         description=(
                             f"`{func['name']}()` releases tokens or mints assets "
-                            "without checking that the caller is an authorized relayer. "
+                            "without checking that the caller is an "
+                            "authorized relayer. "
                             "Anyone can call this function to steal bridged assets.\n\n"
-                            "**Fix:** Add `onlyRelayer` modifier or `require(msg.sender == relayer)` "
+                            "**Fix:** Add `onlyRelayer` modifier or "
+                            "`require(msg.sender == relayer)` "
                             "check."
                         ),
                         severity=Severity.HIGH,

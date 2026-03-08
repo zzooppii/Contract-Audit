@@ -90,7 +90,7 @@ class AderynAnalyzer:
                 return self._parse_output(output_file)
             return []
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error("Aderyn timed out")
             return []
         finally:
@@ -164,7 +164,11 @@ def _map_category(detector: str) -> FindingCategory:
         return FindingCategory.GAS_GRIEFING
     if "governance" in detector_lower or "vote" in detector_lower:
         return FindingCategory.GOVERNANCE_ATTACK
-    if "overflow" in detector_lower or "underflow" in detector_lower or "arithmetic" in detector_lower:
+    if (
+        "overflow" in detector_lower
+        or "underflow" in detector_lower
+        or "arithmetic" in detector_lower
+    ):
         return FindingCategory.ARITHMETIC
     if "unchecked" in detector_lower or "return" in detector_lower:
         return FindingCategory.UNCHECKED_RETURN

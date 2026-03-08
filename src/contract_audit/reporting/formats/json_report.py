@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
-from ...core.models import AuditResult
+from ...core.models import AuditResult, Finding
 
 
-def generate_json_report(result: AuditResult) -> dict:
+def generate_json_report(result: AuditResult) -> dict[str, Any]:
     """Generate structured JSON audit report."""
     return {
         "version": "1.0",
@@ -36,7 +37,7 @@ def generate_json_report(result: AuditResult) -> dict:
     }
 
 
-def _finding_to_dict(f: "Finding") -> dict:
+def _finding_to_dict(f: Finding) -> dict[str, Any]:
     """Convert a Finding to a JSON-serializable dict."""
     return {
         "id": f.id,

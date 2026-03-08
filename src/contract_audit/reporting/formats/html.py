@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
-from jinja2 import Environment, BaseLoader
+from jinja2 import BaseLoader, Environment
 
 from ...core.models import AuditResult
 
@@ -16,11 +15,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Smart Contract Audit Report</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 1200px; margin: 0 auto; padding: 2rem; color: #333; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif; max-width: 1200px; margin: 0 auto;
+    padding: 2rem; color: #333; }
   h1 { color: #1a1a2e; border-bottom: 3px solid #e94560; padding-bottom: 0.5rem; }
   h2 { color: #16213e; margin-top: 2rem; }
   h3 { color: #0f3460; }
-  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1rem; margin: 1rem 0; }
+  .summary-grid { display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem; margin: 1rem 0; }
   .summary-card { padding: 1rem; border-radius: 8px; text-align: center; }
   .critical { background: #ff000020; border: 2px solid #ff0000; }
   .high { background: #ff660020; border: 2px solid #ff6600; }
@@ -36,14 +39,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
   .badge-medium { background: #ffaa00; color: #333; }
   .badge-low { background: #00aaff; color: white; }
   .badge-info { background: #999; color: white; }
-  .location { font-family: monospace; background: #f5f5f5; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.9rem; }
+  .location { font-family: monospace; background: #f5f5f5;
+    padding: 0.25rem 0.5rem; border-radius: 4px;
+    font-size: 0.9rem; }
   pre { background: #1a1a2e; color: #e0e0e0; padding: 1rem; border-radius: 8px; overflow-x: auto; }
   code { font-family: 'Courier New', monospace; }
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: 0.75rem; border: 1px solid #ddd; text-align: left; }
   th { background: #16213e; color: white; }
   tr:nth-child(even) { background: #f9f9f9; }
-  .risk-score { font-size: 2rem; font-weight: bold; color: {% if result.summary.overall_risk_score >= 7 %}#ff0000{% elif result.summary.overall_risk_score >= 4 %}#ff6600{% else %}#00aa00{% endif %}; }
+  .risk-score { font-size: 2rem; font-weight: bold;
+    color: {% if result.summary.overall_risk_score >= 7 %}#ff0000
+    {%- elif result.summary.overall_risk_score >= 4 %}#ff6600
+    {%- else %}#00aa00{% endif %}; }
   .suppressed { opacity: 0.5; text-decoration: line-through; }
 </style>
 </head>
@@ -90,11 +98,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <div class="finding">
   <div class="finding-header">
     <h3>{{ finding.title }}</h3>
-    <span class="badge badge-{{ finding.severity.value | lower }}">{{ finding.severity.value }}</span>
+    <span class="badge badge-{{ finding.severity.value | lower }}">
+      {{- finding.severity.value }}</span>
   </div>
   <table>
-    <tr><th>Risk Score</th><td>{{ finding.risk_score }}</td><th>Confidence</th><td>{{ finding.confidence.value }}</td></tr>
-    <tr><th>Category</th><td>{{ finding.category.value }}</td><th>Source</th><td>{{ finding.source }}</td></tr>
+    <tr><th>Risk Score</th><td>{{ finding.risk_score }}</td>
+        <th>Confidence</th><td>{{ finding.confidence.value }}</td></tr>
+    <tr><th>Category</th><td>{{ finding.category.value }}</td>
+        <th>Source</th><td>{{ finding.source }}</td></tr>
   </table>
   {% if finding.locations %}
   <p><strong>Location:</strong>

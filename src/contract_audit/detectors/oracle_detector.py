@@ -97,13 +97,17 @@ class OracleDetector:
                             Finding(
                                 title=f"Chainlink Oracle: Missing Staleness Check ({fn})",
                                 description=(
-                                    f"`{fn}()` is called without checking `updatedAt` for staleness. "
-                                    f"If the oracle stops updating, stale prices older than "
-                                    f"{max_staleness}s could be used, enabling price manipulation attacks.\n\n"
+                                    f"`{fn}()` is called without checking "
+                                    "`updatedAt` for staleness. "
+                                    "If the oracle stops updating, stale prices "
+                                    f"older than {max_staleness}s could be used, "
+                                    "enabling price manipulation attacks.\n\n"
                                     "**Fix:**\n"
                                     "```solidity\n"
-                                    "(, int256 price, , uint256 updatedAt,) = oracle.latestRoundData();\n"
-                                    f"require(block.timestamp - updatedAt <= {max_staleness}, 'Stale price');\n"
+                                    "(, int256 price, , uint256 updatedAt,) = "
+                                    "oracle.latestRoundData();\n"
+                                    "require(block.timestamp - updatedAt <= "
+                                    f"{max_staleness}, 'Stale price');\n"
                                     "```"
                                 ),
                                 severity=Severity.HIGH,
@@ -234,9 +238,11 @@ class OracleDetector:
                         Finding(
                             title="Chainlink: Missing Round Completeness Check",
                             description=(
-                                "`latestRoundData()` is used without checking `answeredInRound >= roundId`. "
-                                "During Chainlink aggregator downtime, it can return data from a previous "
-                                "incomplete round, providing stale/incorrect prices."
+                                "`latestRoundData()` is used without checking "
+                                "`answeredInRound >= roundId`. "
+                                "During Chainlink aggregator downtime, it can "
+                                "return data from a previous incomplete round, "
+                                "providing stale/incorrect prices."
                             ),
                             severity=Severity.MEDIUM,
                             confidence=Confidence.MEDIUM,

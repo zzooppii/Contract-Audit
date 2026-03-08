@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from pathlib import Path
@@ -13,7 +12,7 @@ from pydantic import BaseModel
 
 from ...auth.middleware import require_google_auth
 from ...core.config import load_config
-from ...core.models import AuditContext, AuditResult
+from ...core.models import AuditContext
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +42,7 @@ class AuditStatus(BaseModel):
 
 @router.get("", response_model=list[AuditStatus])
 async def list_audits(
-    user: dict = Depends(require_google_auth),
+    user: dict[str, Any] = Depends(require_google_auth),
 ) -> list[AuditStatus]:
     """List all audits."""
     return [
@@ -62,7 +61,7 @@ async def start_audit(
     request_body: AuditRequest,
     background_tasks: BackgroundTasks,
     request: Request,
-    user: dict = Depends(require_google_auth),
+    user: dict[str, Any] = Depends(require_google_auth),
 ) -> AuditStatus:
     """Start a new audit in the background."""
     audit_id = str(uuid.uuid4())
@@ -84,7 +83,7 @@ async def start_audit(
 @router.get("/{audit_id}", response_model=AuditStatus)
 async def get_audit_status(
     audit_id: str,
-    user: dict = Depends(require_google_auth),
+    user: dict[str, Any] = Depends(require_google_auth),
 ) -> AuditStatus:
     """Get the status of an audit."""
     audit = _audit_store.get(audit_id)
@@ -102,8 +101,8 @@ async def get_audit_status(
 @router.get("/{audit_id}/result")
 async def get_audit_result(
     audit_id: str,
-    user: dict = Depends(require_google_auth),
-) -> dict:
+    user: dict[str, Any] = Depends(require_google_auth),
+) -> dict[str, Any]:
     """Get the full result of a completed audit."""
     audit = _audit_store.get(audit_id)
     if not audit:
@@ -115,7 +114,7 @@ async def get_audit_result(
             detail=f"Audit is {audit['status']}, not completed",
         )
 
-    result = audit.get("result")
+    result: dict[str, Any] | None = audit.get("result")
     if not result:
         raise HTTPException(status_code=500, detail="No result available")
 

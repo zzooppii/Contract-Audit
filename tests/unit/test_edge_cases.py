@@ -1,10 +1,10 @@
 """Edge case tests: all 22 detectors must not crash on abnormal inputs."""
 
 import importlib
+
 import pytest
 
-from contract_audit.core.models import AuditContext, AuditConfig
-
+from contract_audit.core.models import AuditConfig, AuditContext
 
 # All 22 detectors: (class_name, module_name)
 ALL_DETECTORS = [

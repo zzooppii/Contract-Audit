@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 try:
     from slither.detectors.abstract_detector import AbstractDetector, DetectorClassification
 
-    class FlashLoanTaintDetector(AbstractDetector):
+    class FlashLoanTaintDetector(AbstractDetector):  # type: ignore[misc]
         """Detects flash loan callback taint reaching sensitive sinks."""
 
         ARGUMENT = "flash-loan-taint"
@@ -44,7 +46,7 @@ try:
             "_burn",
         }
 
-        def _detect(self) -> list:
+        def _detect(self) -> list[Any]:
             results = []
             for contract in self.slither.contracts:
                 for func in contract.functions:

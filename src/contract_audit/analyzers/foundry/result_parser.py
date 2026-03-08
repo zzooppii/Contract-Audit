@@ -57,10 +57,11 @@ def _failure_to_finding(
         description += f"**Reason:** {reason}\n\n"
 
     if counterexample:
-        description += f"**Counterexample:**\n```\n{_format_counterexample(counterexample)}\n```\n\n"
+        ce = _format_counterexample(counterexample)
+        description += f"**Counterexample:**\n```\n{ce}\n```\n\n"
 
     if decoded_logs:
-        description += f"**Logs:**\n```\n" + "\n".join(decoded_logs[:10]) + "\n```\n"
+        description += "**Logs:**\n```\n" + "\n".join(decoded_logs[:10]) + "\n```\n"
 
     return Finding(
         title=f"Foundry Test Failure: {test_name}",

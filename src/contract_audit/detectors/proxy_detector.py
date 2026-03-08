@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 
 from ..core.models import (
     AuditContext,
@@ -96,8 +95,10 @@ class ProxyDetector:
                             Finding(
                                 title=f"Unprotected Initializer: {pattern}()",
                                 description=(
-                                    f"`{pattern}()` can be called by anyone without an `initializer` "
-                                    "modifier or re-initialization guard. An attacker can call this "
+                                    f"`{pattern}()` can be called by anyone "
+                                    "without an `initializer` modifier or "
+                                    "re-initialization guard. An attacker can "
+                                    "call this "
                                     "to take ownership of the contract, especially when deployed "
                                     "behind a proxy.\n\n"
                                     "**Fix:** Use OpenZeppelin's `initializer` modifier, or add "
@@ -122,7 +123,7 @@ class ProxyDetector:
 
     def _check_uups_authorization(self, filename: str, source: str) -> list[Finding]:
         """Check UUPS proxy for proper upgrade authorization."""
-        findings = []
+        findings: list[Finding] = []
 
         if "proxiableUUID" not in source and "UUPSUpgradeable" not in source:
             return findings
@@ -220,7 +221,7 @@ class ProxyDetector:
 
     def _check_eip1967_compliance(self, filename: str, source: str) -> list[Finding]:
         """Check EIP-1967 storage slot compliance."""
-        findings = []
+        findings: list[Finding] = []
 
         if "delegatecall" not in source:
             return findings
@@ -257,7 +258,7 @@ class ProxyDetector:
 
     def _check_missing_storage_gap(self, filename: str, source: str) -> list[Finding]:
         """Check for missing storage gap in upgradeable contracts."""
-        findings = []
+        findings: list[Finding] = []
 
         # Only relevant for contracts with upgrade patterns
         has_upgrade = bool(re.search(
@@ -303,7 +304,11 @@ class ProxyDetector:
                     source=self.name,
                     detector_name="missing-storage-gap",
                     locations=[
-                        SourceLocation(file=filename, start_line=last_state_line, end_line=last_state_line)
+                        SourceLocation(
+                            file=filename,
+                            start_line=last_state_line,
+                            end_line=last_state_line,
+                        )
                     ],
                 )
             )

@@ -1,9 +1,8 @@
 """Unit tests for core data models."""
 
-import pytest
+import time
+
 from contract_audit.core.models import (
-    AuditContext,
-    AuditResult,
     AuditSummary,
     Confidence,
     Finding,
@@ -12,8 +11,6 @@ from contract_audit.core.models import (
     Severity,
     SourceLocation,
 )
-from pathlib import Path
-import time
 
 
 class TestFinding:

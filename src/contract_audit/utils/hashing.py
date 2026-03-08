@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections import defaultdict
 
-from ..core.models import Finding, FindingCategory, SourceLocation
+from ..core.models import Finding, SourceLocation
 
 # Severity ordering for keeping the most important finding
 _SEVERITY_ORDER = {

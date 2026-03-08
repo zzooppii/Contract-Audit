@@ -9,8 +9,6 @@ from __future__ import annotations
 import logging
 import re
 
-from .utils import strip_comments, strip_interfaces, extract_functions
-
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -19,6 +17,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import extract_functions, strip_comments, strip_interfaces
 
 logger = logging.getLogger(__name__)
 
@@ -146,13 +145,10 @@ class IntegerDetector:
         findings: list[Finding] = []
         in_unchecked = False
         unchecked_depth = 0
-        unchecked_start = 0
-
         for i, line in enumerate(lines):
             if re.search(r'\bunchecked\s*\{', line):
                 in_unchecked = True
                 unchecked_depth = 0
-                unchecked_start = i
 
             if in_unchecked:
                 unchecked_depth += line.count('{') - line.count('}')

@@ -1,6 +1,5 @@
 """Unit tests for the risk scoring engine."""
 
-import pytest
 from contract_audit.core.models import Confidence, Finding, FindingCategory, Severity
 from contract_audit.scoring.engine import RiskScoringEngine
 
@@ -88,9 +87,10 @@ class TestRiskScoringEngine:
 
 class TestFalsePositiveReducer:
     def test_annotation_suppression(self):
+        from pathlib import Path
+
         from contract_audit.core.models import AuditContext, SourceLocation
         from contract_audit.scoring.false_positive import FalsePositiveReducer
-        from pathlib import Path
 
         reducer = FalsePositiveReducer()
 
@@ -120,9 +120,10 @@ class TestFalsePositiveReducer:
         assert "@audit-ok" in findings[0].suppression_reason
 
     def test_single_low_confidence_suppressed(self):
+        from pathlib import Path
+
         from contract_audit.core.models import AuditContext
         from contract_audit.scoring.false_positive import FalsePositiveReducer
-        from pathlib import Path
 
         reducer = FalsePositiveReducer()
 

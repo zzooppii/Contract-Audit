@@ -9,8 +9,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from ...core.models import LLMResponse
 from ...auth.token_store import TokenStore
+from ...core.models import LLMResponse
 
 logger = logging.getLogger(__name__)
 
@@ -112,15 +112,15 @@ class AnthropicProvider:
         input_tokens = response.usage.input_tokens
         output_tokens = response.usage.output_tokens
 
-        structured = None
+        structured: dict[str, Any] | None = None
         if response_schema:
             try:
                 # Parse JSON from response
                 import re
                 json_match = re.search(r'\{.*\}', content, re.DOTALL)
                 if json_match:
-                    structured = response_schema.model_validate_json(json_match.group())
-                    structured = structured.model_dump()
+                    parsed = response_schema.model_validate_json(json_match.group())
+                    structured = parsed.model_dump()
             except Exception as e:
                 logger.warning(f"Failed to parse structured response: {e}")
 

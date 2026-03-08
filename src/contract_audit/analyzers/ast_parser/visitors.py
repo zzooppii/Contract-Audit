@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 
 class ASTVisitor:
@@ -36,7 +37,7 @@ class FunctionCallCollector(ASTVisitor):
         self.target_names = target_names
         self.calls: list[dict[str, Any]] = []
 
-    def visit_FunctionCall(self, node: dict[str, Any]) -> None:
+    def visit_FunctionCall(self, node: dict[str, Any]) -> None:  # noqa: N802
         expression = node.get("expression", {})
         name = (
             expression.get("memberName")
@@ -53,10 +54,10 @@ class StateVariableCollector(ASTVisitor):
     def __init__(self) -> None:
         self.variables: list[dict[str, Any]] = []
 
-    def visit_StateVariableDeclaration(self, node: dict[str, Any]) -> None:
+    def visit_StateVariableDeclaration(self, node: dict[str, Any]) -> None:  # noqa: N802
         self.variables.append(node)
 
-    def visit_VariableDeclaration(self, node: dict[str, Any]) -> None:
+    def visit_VariableDeclaration(self, node: dict[str, Any]) -> None:  # noqa: N802
         if node.get("stateVariable"):
             self.variables.append(node)
 
@@ -67,7 +68,7 @@ class ModifierCollector(ASTVisitor):
     def __init__(self) -> None:
         self.modifiers: list[str] = []
 
-    def visit_ModifierInvocation(self, node: dict[str, Any]) -> None:
+    def visit_ModifierInvocation(self, node: dict[str, Any]) -> None:  # noqa: N802
         modifier_name = node.get("modifierName", {}).get("name", "")
         if modifier_name:
             self.modifiers.append(modifier_name)
@@ -79,7 +80,7 @@ class InheritanceCollector(ASTVisitor):
     def __init__(self) -> None:
         self.contracts: list[dict[str, Any]] = []
 
-    def visit_ContractDefinition(self, node: dict[str, Any]) -> None:
+    def visit_ContractDefinition(self, node: dict[str, Any]) -> None:  # noqa: N802
         self.contracts.append({
             "name": node.get("name", ""),
             "base_contracts": [

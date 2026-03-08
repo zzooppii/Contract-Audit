@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import io
 import json
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
@@ -38,7 +38,7 @@ def _get_audit_result(audit_id: str) -> AuditResult:
 @router.get("/{audit_id}/sarif")
 async def get_sarif_report(
     audit_id: str,
-    user: dict = Depends(require_google_auth),
+    user: dict[str, Any] = Depends(require_google_auth),
 ) -> Response:
     """Download SARIF report for a completed audit."""
     result = _get_audit_result(audit_id)
@@ -56,7 +56,7 @@ async def get_sarif_report(
 @router.get("/{audit_id}/markdown")
 async def get_markdown_report(
     audit_id: str,
-    user: dict = Depends(require_google_auth),
+    user: dict[str, Any] = Depends(require_google_auth),
 ) -> Response:
     """Download Markdown report for a completed audit."""
     result = _get_audit_result(audit_id)
@@ -74,7 +74,7 @@ async def get_markdown_report(
 @router.get("/{audit_id}/pdf")
 async def get_pdf_report(
     audit_id: str,
-    user: dict = Depends(require_google_auth),
+    user: dict[str, Any] = Depends(require_google_auth),
 ) -> Response:
     """Download PDF report for a completed audit."""
     result = _get_audit_result(audit_id)
@@ -110,7 +110,7 @@ async def get_pdf_report(
 @router.get("/{audit_id}/json")
 async def get_json_report(
     audit_id: str,
-    user: dict = Depends(require_google_auth),
+    user: dict[str, Any] = Depends(require_google_auth),
 ) -> Response:
     """Download JSON report for a completed audit."""
     audit = _audit_store.get(audit_id)

@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
 from typing import Any
 
-from ...core.exceptions import AnalyzerError
 from ...core.models import (
     AuditContext,
     Confidence,
@@ -17,11 +15,7 @@ from ...core.models import (
     SourceLocation,
 )
 from ...utils.solc import compile_contracts, extract_ast_trees, extract_storage_layouts
-from ..base import AnalyzerProtocol
 from .visitors import (
-    FunctionCallCollector,
-    InheritanceCollector,
-    ModifierCollector,
     walk_ast,
 )
 
@@ -82,12 +76,12 @@ class ASTAnalyzer:
         logger.info(f"AST analyzer found {len(findings)} findings")
         return findings
 
-    def _check_unchecked_returns(self, filename: str, ast: dict) -> list[Finding]:
+    def _check_unchecked_returns(self, filename: str, ast: dict[str, Any]) -> list[Finding]:
         """Check for unchecked low-level call return values."""
-        findings = []
-        calls_found: list[dict] = []
+        findings: list[Finding] = []
+        calls_found: list[dict[str, Any]] = []
 
-        def collect_calls(node: dict) -> None:
+        def collect_calls(node: dict[str, Any]) -> None:
             if node.get("nodeType") == "ExpressionStatement":
                 expr = node.get("expression", {})
                 if expr.get("nodeType") == "FunctionCall":
@@ -124,13 +118,13 @@ class ASTAnalyzer:
             )
         return findings
 
-    def _check_missing_zero_check(self, filename: str, ast: dict) -> list[Finding]:
+    def _check_missing_zero_check(self, filename: str, ast: dict[str, Any]) -> list[Finding]:
         """Check for missing zero-address checks on address parameters."""
-        findings = []
+        findings: list[Finding] = []
         # Look for functions setting address state variables without zero check
-        addr_assignments: list[dict] = []
+        addr_assignments: list[dict[str, Any]] = []
 
-        def find_address_assigns(node: dict) -> None:
+        def find_address_assigns(node: dict[str, Any]) -> None:
             if node.get("nodeType") == "Assignment":
                 right = node.get("rightHandSide", {})
                 if right.get("nodeType") == "Identifier":
@@ -143,12 +137,12 @@ class ASTAnalyzer:
         # Simplified check: just report if assignments exist without require nearby
         return findings  # Complex analysis deferred to Slither
 
-    def _check_tx_origin(self, filename: str, ast: dict) -> list[Finding]:
+    def _check_tx_origin(self, filename: str, ast: dict[str, Any]) -> list[Finding]:
         """Detect tx.origin usage for authentication."""
         findings = []
-        tx_origin_nodes: list[dict] = []
+        tx_origin_nodes: list[dict[str, Any]] = []
 
-        def find_tx_origin(node: dict) -> None:
+        def find_tx_origin(node: dict[str, Any]) -> None:
             if (
                 node.get("nodeType") == "MemberAccess"
                 and node.get("memberName") == "origin"
@@ -185,12 +179,12 @@ class ASTAnalyzer:
             )
         return findings
 
-    def _check_block_timestamp(self, filename: str, ast: dict) -> list[Finding]:
+    def _check_block_timestamp(self, filename: str, ast: dict[str, Any]) -> list[Finding]:
         """Detect dangerous use of block.timestamp."""
         findings = []
-        timestamp_in_condition: list[dict] = []
+        timestamp_in_condition: list[dict[str, Any]] = []
 
-        def find_timestamp(node: dict) -> None:
+        def find_timestamp(node: dict[str, Any]) -> None:
             if (
                 node.get("nodeType") == "MemberAccess"
                 and node.get("memberName") == "timestamp"

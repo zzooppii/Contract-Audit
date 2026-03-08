@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
@@ -48,7 +48,8 @@ Respond ONLY with valid JSON in this exact format:
       "title": "Short descriptive title",
       "description": "Detailed description of the vulnerability and attack scenario",
       "severity": "Critical|High|Medium|Low|Informational",
-      "category": "reentrancy|access-control|oracle-manipulation|flash-loan|arithmetic|front-running|other",
+      "category": "reentrancy|access-control|oracle-manipulation|\
+flash-loan|arithmetic|front-running|other",
       "start_line": 42,
       "end_line": 50,
       "function_name": "vulnerableFunction"
@@ -100,7 +101,7 @@ class LLMAuditResult(BaseModel):
 class AuditTask:
     """Uses LLM to directly audit contract source for business logic vulnerabilities."""
 
-    def __init__(self, router: "LLMRouter") -> None:
+    def __init__(self, router: LLMRouter) -> None:
         self.router = router
 
     async def run(self, source: str, filename: str) -> list[Finding]:

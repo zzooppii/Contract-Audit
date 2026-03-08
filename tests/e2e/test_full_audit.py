@@ -1,12 +1,12 @@
 """End-to-end tests: full pipeline against fixture contracts."""
 
-import pytest
 from pathlib import Path
 
-from contract_audit.core.config import load_config
-from contract_audit.core.models import AuditContext, AuditConfig, FindingCategory, Severity
-from contract_audit.core.pipeline import PipelineOrchestrator
+import pytest
+
 from contract_audit.analyzers.ast_parser.analyzer import ASTAnalyzer
+from contract_audit.core.models import AuditConfig, AuditContext, FindingCategory
+from contract_audit.core.pipeline import PipelineOrchestrator
 from contract_audit.detectors.access_control_detector import AccessControlDetector
 from contract_audit.detectors.bridge_detector import BridgeDetector
 from contract_audit.detectors.cross_contract_detector import CrossContractDetector
@@ -132,7 +132,7 @@ async def test_report_generation(pipeline, audit_config, tmp_path):
 @pytest.mark.asyncio
 async def test_sarif_format_valid(pipeline, audit_config, tmp_path):
     """SARIF output should be valid JSON with correct schema."""
-    import shutil, json
+    import shutil
     shutil.copy(FIXTURES_DIR / "UnsafeOracle.sol", tmp_path / "UnsafeOracle.sol")
 
     context = AuditContext(project_path=tmp_path, config=audit_config)

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import Any
 
 try:
     from slither.detectors.abstract_detector import AbstractDetector, DetectorClassification
 
-    class OracleManipulationDetector(AbstractDetector):
+    class OracleManipulationDetector(AbstractDetector):  # type: ignore[misc]
         """Detects oracle price reads without staleness checks."""
 
         ARGUMENT = "oracle-manipulation"
@@ -45,7 +45,7 @@ try:
             "timestamp",
         }
 
-        def _detect(self) -> list:
+        def _detect(self) -> list[Any]:
             results = []
             for contract in self.slither.contracts:
                 for func in contract.functions:

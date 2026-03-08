@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from ..auth.token_store import TokenStore
-from .routes import auth, audit, reports
+from .routes import audit, auth, reports
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,7 @@ def create_app() -> FastAPI:
         """
 
     @app.get("/health")
-    async def health() -> dict:
+    async def health() -> dict[str, str]:
         """Health check endpoint."""
         return {"status": "ok", "version": "1.0.0"}
 

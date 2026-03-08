@@ -9,8 +9,6 @@ from __future__ import annotations
 import logging
 import re
 
-from .utils import extract_functions
-
 from ..core.models import (
     AuditContext,
     Confidence,
@@ -19,6 +17,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import extract_functions
 
 logger = logging.getLogger(__name__)
 

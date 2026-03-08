@@ -4,15 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .models import AuditContext, AuditMetadata, AuditResult, AuditSummary, Finding
-from .exceptions import AuditEngineError
 
 if TYPE_CHECKING:
-    from ..analyzers.base import AnalyzerProtocol
-    from ..detectors.base import DetectorProtocol
     from ..llm.router import LLMRouter
     from ..scoring.engine import RiskScoringEngine
     from ..scoring.false_positive import FalsePositiveReducer
@@ -27,9 +23,9 @@ class PipelineOrchestrator:
         self,
         analyzers: list[Any],
         detectors: list[Any],
-        scoring_engine: "RiskScoringEngine | None" = None,
-        fp_reducer: "FalsePositiveReducer | None" = None,
-        llm_router: "LLMRouter | None" = None,
+        scoring_engine: RiskScoringEngine | None = None,
+        fp_reducer: FalsePositiveReducer | None = None,
+        llm_router: LLMRouter | None = None,
     ) -> None:
         self.analyzers = analyzers
         self.detectors = detectors
@@ -134,7 +130,12 @@ class PipelineOrchestrator:
 
     async def _phase_compile(self, context: AuditContext, metadata: AuditMetadata) -> None:
         """Phase 1: Load sources and compile contracts."""
-        from ..utils.solc import compile_contracts, extract_ast_trees, extract_storage_layouts, load_source_files
+        from ..utils.solc import (
+            compile_contracts,
+            extract_ast_trees,
+            extract_storage_layouts,
+            load_source_files,
+        )
 
         logger.info("Phase 1: Loading source files...")
 
@@ -179,7 +180,7 @@ class PipelineOrchestrator:
                 logger.info(f"Skipping {analyzer.name}: not installed")
                 return []
             logger.debug(f"Running analyzer: {analyzer.name}")
-            findings = await analyzer.analyze(context)
+            findings: list[Finding] = await analyzer.analyze(context)
             logger.info(f"{analyzer.name}: {len(findings)} findings")
             return findings
         except Exception as e:
@@ -198,7 +199,7 @@ class PipelineOrchestrator:
                         )
                         # Don't skip, detectors handle missing context gracefully
             logger.debug(f"Running detector: {detector.name}")
-            findings = await detector.detect(context)
+            findings: list[Finding] = await detector.detect(context)
             logger.info(f"{detector.name}: {len(findings)} findings")
             return findings
         except Exception as e:
@@ -305,8 +306,8 @@ class PipelineOrchestrator:
             return findings
 
         from ..llm.tasks.explain import ExplainTask
-        from ..llm.tasks.remediate import RemediateTask
         from ..llm.tasks.poc_generate import PoCGenerateTask
+        from ..llm.tasks.remediate import RemediateTask
         from ..llm.tasks.summarize import SummarizeTask
 
         explain = ExplainTask(self.llm_router)

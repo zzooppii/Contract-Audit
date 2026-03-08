@@ -95,8 +95,9 @@ async def compile_contracts(
             if err.get("severity") == "error":
                 logger.warning(f"Compilation error: {err.get('message', '')}")
 
-        return output
-    except asyncio.TimeoutError:
+        result: dict[str, Any] = output
+        return result
+    except TimeoutError:
         logger.error("solc compilation timed out")
         return {}
     except Exception as e:
@@ -106,9 +107,9 @@ async def compile_contracts(
 
 def extract_storage_layouts(
     compilation_output: dict[str, Any],
-) -> dict[str, dict]:
+) -> dict[str, dict[str, Any]]:
     """Extract storage layout from solc output."""
-    layouts: dict[str, dict] = {}
+    layouts: dict[str, dict[str, Any]] = {}
     contracts = compilation_output.get("contracts", {})
     for filename, file_contracts in contracts.items():
         for contract_name, contract_data in file_contracts.items():
@@ -120,9 +121,9 @@ def extract_storage_layouts(
 
 def extract_ast_trees(
     compilation_output: dict[str, Any],
-) -> dict[str, dict]:
+) -> dict[str, dict[str, Any]]:
     """Extract AST trees from solc output."""
-    trees: dict[str, dict] = {}
+    trees: dict[str, dict[str, Any]] = {}
     sources = compilation_output.get("sources", {})
     for filename, source_data in sources.items():
         ast = source_data.get("ast", {})

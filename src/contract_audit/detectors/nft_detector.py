@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-
-from .utils import strip_comments, strip_interfaces, extract_functions
+from typing import Any
 
 from ..core.models import (
     AuditContext,
@@ -19,6 +18,7 @@ from ..core.models import (
     Severity,
     SourceLocation,
 )
+from .utils import extract_functions, strip_comments, strip_interfaces
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,10 @@ class NFTDetector:
 
             # Only run on contracts that look NFT-related
             # Require at least one NFT-specific keyword (not just _mint which ERC20 also uses)
-            if not re.search(r'\b(ERC721|ERC1155|tokenURI|ownerOf|_safeMint|onERC721Received|safeTransferFrom)\b', clean):
+            if not re.search(
+                r'\b(ERC721|ERC1155|tokenURI|ownerOf|_safeMint'
+                r'|onERC721Received|safeTransferFrom)\b', clean,
+            ):
                 continue
 
             functions = extract_functions(clean)
@@ -53,7 +56,7 @@ class NFTDetector:
         return findings
 
     def _check_unsafe_mint(
-        self, filename: str, source: str, functions: list[dict]
+        self, filename: str, source: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect use of _mint() instead of _safeMint().
 
@@ -106,7 +109,7 @@ class NFTDetector:
         return findings
 
     def _check_reentrancy_via_callback(
-        self, filename: str, functions: list[dict]
+        self, filename: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect state changes after safeTransferFrom/_safeMint.
 
@@ -142,7 +145,8 @@ class NFTDetector:
                     if match:
                         var_name = match.group(1)
                         # Skip local variable declarations
-                        if re.search(rf'\b(uint|int|bool|address|bytes|string)\b.*\b{re.escape(var_name)}\b', line):
+                        esc = re.escape(var_name)
+                        if re.search(rf'\b(uint|int|bool|address|bytes|string)\b.*\b{esc}\b', line):
                             continue
 
                         findings.append(
@@ -177,7 +181,7 @@ class NFTDetector:
         return findings
 
     def _check_missing_exists_check(
-        self, filename: str, functions: list[dict]
+        self, filename: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect tokenURI and similar functions missing _exists() check."""
         findings: list[Finding] = []
@@ -205,7 +209,8 @@ class NFTDetector:
                             f"`{func['name']}()` does not check if the token exists before "
                             "operating on it. Querying a non-existent token should revert "
                             "per the ERC-721 spec.\n\n"
-                            "**Fix:** Add `require(_exists(tokenId))` or use `_requireOwned(tokenId)` "
+                            "**Fix:** Add `require(_exists(tokenId))` or "
+                            "use `_requireOwned(tokenId)` "
                             "at the start of the function."
                         ),
                         severity=Severity.MEDIUM,
@@ -227,7 +232,7 @@ class NFTDetector:
         return findings
 
     def _check_unlimited_approval(
-        self, filename: str, source: str, functions: list[dict]
+        self, filename: str, source: str, functions: list[dict[str, Any]]
     ) -> list[Finding]:
         """Detect setApprovalForAll overrides without additional validation."""
         findings: list[Finding] = []
@@ -245,7 +250,10 @@ class NFTDetector:
             ))
 
             # Check if it's just calling super
-            is_just_super = bool(re.search(r'super\.setApprovalForAll', body)) and not has_validation
+            is_just_super = (
+                bool(re.search(r'super\.setApprovalForAll', body))
+                and not has_validation
+            )
 
             if is_just_super or not has_validation:
                 findings.append(

@@ -35,7 +35,7 @@ class FalsePositiveReducer:
 
     def __init__(
         self,
-        llm_router: "LLMRouter | None" = None,
+        llm_router: LLMRouter | None = None,
         triage_threshold: float = 0.7,
         context_window: int = 10,
     ) -> None:

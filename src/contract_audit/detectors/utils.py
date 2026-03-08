@@ -6,6 +6,7 @@ Used by multiple detectors to strip comments, interfaces, and extract functions.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 
 def strip_comments(source: str) -> str:
@@ -33,7 +34,7 @@ def strip_interfaces(source: str) -> str:
     return '\n'.join(result)
 
 
-def extract_functions(source: str) -> list[dict]:
+def extract_functions(source: str) -> list[dict[str, Any]]:
     """Extract function declarations with bodies from Solidity source.
 
     Returns list of dicts with keys:

@@ -1,9 +1,8 @@
 """Unit tests for cross-contract analysis modules."""
 
-import pytest
+from contract_audit.analyzers.cross_contract.call_graph import CallGraph
 from contract_audit.analyzers.cross_contract.import_resolver import ImportResolver
 from contract_audit.analyzers.cross_contract.inheritance_graph import InheritanceGraph
-from contract_audit.analyzers.cross_contract.call_graph import CallGraph
 
 
 class TestImportResolver:

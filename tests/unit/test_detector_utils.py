@@ -1,6 +1,5 @@
 """Unit tests for shared detector utility functions."""
 
-import pytest
 
 from contract_audit.detectors.utils import (
     extract_functions,
@@ -160,6 +159,10 @@ class TestExtractFunctions:
         assert funcs[0]["visibility"] == "private"
 
     def test_pure_function(self):
-        source = "contract Foo {\n    function add(uint a, uint b) internal pure returns (uint) { return a + b; }\n}"
+        source = (
+            "contract Foo {\n"
+            "    function add(uint a, uint b) internal pure "
+            "returns (uint) { return a + b; }\n}"
+        )
         funcs = extract_functions(source)
         assert funcs[0]["is_view_pure"] is True

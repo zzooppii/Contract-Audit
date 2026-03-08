@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 
 def generate_fuzz_harness(
     contract_name: str,
-    functions: list[dict],
+    functions: list[dict[str, Any]],
     output_dir: Path,
 ) -> Path:
     """Generate a Foundry fuzz test harness for a contract.
@@ -72,9 +73,9 @@ contract Fuzz{contract_name}Test is Test {{
     return test_file
 
 
-def _build_params(inputs: list[dict]) -> list[str]:
+def _build_params(inputs: list[dict[str, Any]]) -> list[str]:
     """Build Solidity parameter declarations from ABI inputs."""
-    params = []
+    params: list[str] = []
     for inp in inputs:
         type_ = _map_type(inp.get("type", "uint256"))
         name = inp.get("name", f"param{len(params)}")
@@ -137,7 +138,7 @@ _CATEGORY_TEMPLATES: dict[str, str] = {
 
 def generate_targeted_harness(
     contract_name: str,
-    finding: "Any",
+    finding: Any,
     source: str,
     output_dir: Path,
 ) -> Path:
@@ -156,7 +157,6 @@ def generate_targeted_harness(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    category_key = finding.category.value
     func_name = ""
     if finding.locations:
         func_name = finding.locations[0].function or "target"

@@ -5,14 +5,14 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     CRITICAL = "Critical"
     HIGH = "High"
     MEDIUM = "Medium"
@@ -21,13 +21,13 @@ class Severity(str, Enum):
     GAS = "Gas"
 
 
-class Confidence(str, Enum):
+class Confidence(StrEnum):
     HIGH = "High"
     MEDIUM = "Medium"
     LOW = "Low"
 
 
-class FindingCategory(str, Enum):
+class FindingCategory(StrEnum):
     REENTRANCY = "reentrancy"
     ACCESS_CONTROL = "access-control"
     ORACLE_MANIPULATION = "oracle-manipulation"
@@ -251,8 +251,8 @@ class AuditContext(BaseModel):
 
     project_path: Path
     contract_sources: dict[str, str] = Field(default_factory=dict)
-    ast_trees: dict[str, dict] = Field(default_factory=dict)
-    storage_layouts: dict[str, dict] = Field(default_factory=dict)
+    ast_trees: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    storage_layouts: dict[str, dict[str, Any]] = Field(default_factory=dict)
     slither_instance: Any = None  # Slither object (not serialized)
     compilation_artifacts: dict[str, Any] = Field(default_factory=dict)
     config: AuditConfig = Field(default_factory=AuditConfig)

@@ -16,8 +16,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from .exceptions import PluginError
 
 if TYPE_CHECKING:
-    from ..analyzers.base import AnalyzerProtocol
-    from ..detectors.base import DetectorProtocol
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +66,8 @@ def _load_from_module_path(module_path: str) -> type:
     module_str, class_name = module_path.rsplit(":", 1)
     try:
         module = importlib.import_module(module_str)
-        return getattr(module, class_name)
+        cls: type = getattr(module, class_name)
+        return cls
     except (ImportError, AttributeError) as e:
         raise PluginError(f"Cannot load plugin {module_path}: {e}") from e
 
