@@ -39,6 +39,7 @@ CATEGORY_MULTIPLIERS: dict[FindingCategory, float] = {
     FindingCategory.TIMELOCK_BYPASS: 1.4,
     FindingCategory.NFT_VULNERABILITY: 1.1,
     FindingCategory.BRIDGE_VULNERABILITY: 1.5,
+    FindingCategory.ERC4626_VULNERABILITY: 1.4,
     FindingCategory.INITIALIZATION: 1.1,
     FindingCategory.INFORMATIONAL: 0.5,
     FindingCategory.OTHER: 0.8,

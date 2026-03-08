@@ -33,8 +33,15 @@ AUDIT_FP_PATTERN = re.compile(
 class FalsePositiveReducer:
     """Applies three-layer FP reduction to findings."""
 
-    def __init__(self, llm_router: "LLMRouter | None" = None) -> None:
+    def __init__(
+        self,
+        llm_router: "LLMRouter | None" = None,
+        triage_threshold: float = 0.7,
+        context_window: int = 10,
+    ) -> None:
         self.llm_router = llm_router
+        self.triage_threshold = triage_threshold
+        self.context_window = context_window
 
     def reduce(
         self,
@@ -117,7 +124,11 @@ class FalsePositiveReducer:
     async def _llm_triage(
         self, findings: list[Finding], context: AuditContext
     ) -> list[Finding]:
-        """Use LLM to classify borderline findings as true/false positives."""
+        """Use LLM to classify borderline findings as true/false positives.
+
+        Uses configurable threshold and batches findings by file for
+        efficiency.
+        """
         if not self.llm_router:
             return findings
 
@@ -125,30 +136,40 @@ class FalsePositiveReducer:
 
         triage = TriageTask(self.llm_router)
 
-        # Only triage medium-confidence findings to save budget
+        # Filter findings eligible for triage based on threshold
         borderline = [
             f for f in findings
             if not f.suppressed and f.confidence == Confidence.MEDIUM
+            and f.risk_score <= self.triage_threshold * 10
         ]
 
-        for finding in borderline:
-            # Get relevant source snippet
-            source_snippet = ""
-            for loc in finding.locations[:1]:
-                src = context.contract_sources.get(loc.file, "")
-                if src:
-                    lines = src.splitlines()
-                    start = max(0, loc.start_line - 5)
-                    end = min(len(lines), loc.end_line + 10)
-                    source_snippet = "\n".join(lines[start:end])
+        # Batch by file for context efficiency
+        from collections import defaultdict
+        by_file: dict[str, list[Finding]] = defaultdict(list)
+        for f in borderline:
+            file_key = f.locations[0].file if f.locations else "__unknown__"
+            by_file[file_key].append(f)
 
-            try:
-                is_fp = await triage.classify(finding, source_snippet)
-                if is_fp:
-                    finding.suppressed = True
-                    finding.suppression_reason = "LLM triage: classified as false positive"
-                    logger.debug(f"LLM suppressed '{finding.title}'")
-            except Exception as e:
-                logger.warning(f"LLM triage failed for '{finding.title}': {e}")
+        for file_key, file_findings in by_file.items():
+            # Build source context once per file
+            src = context.contract_sources.get(file_key, "")
+            src_lines = src.splitlines() if src else []
+
+            for finding in file_findings:
+                source_snippet = ""
+                for loc in finding.locations[:1]:
+                    if src_lines:
+                        start = max(0, loc.start_line - 1 - self.context_window)
+                        end = min(len(src_lines), loc.end_line + self.context_window)
+                        source_snippet = "\n".join(src_lines[start:end])
+
+                try:
+                    is_fp = await triage.classify(finding, source_snippet)
+                    if is_fp:
+                        finding.suppressed = True
+                        finding.suppression_reason = "LLM triage: classified as false positive"
+                        logger.debug(f"LLM suppressed '{finding.title}'")
+                except Exception as e:
+                    logger.warning(f"LLM triage failed for '{finding.title}': {e}")
 
         return findings
