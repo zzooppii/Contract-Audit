@@ -128,6 +128,16 @@ class SlitherAnalyzer:
         logger.info(f"No build framework detected, analyzing {len(sol_files)} .sol files individually")
         return sol_files
 
+    @staticmethod
+    def _register_builtin_detectors(slither_instance: Any) -> None:
+        """Register all built-in Slither detectors."""
+        import inspect
+        for _name, obj in inspect.getmembers(all_detectors, inspect.isclass):
+            try:
+                slither_instance.register_detector(obj)
+            except Exception:
+                pass
+
     def _get_custom_detectors(self) -> list[type]:
         """Return list of custom detector classes to register."""
         detectors = []

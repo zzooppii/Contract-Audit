@@ -285,6 +285,17 @@ def _build_pipeline(audit_config: "Any", llm_config: "Any") -> "Any":
     from ..detectors.storage_collision import StorageCollisionDetector
     from ..detectors.gas_griefing import GasGriefingDetector
     from ..detectors.governance_detector import GovernanceDetector
+    from ..detectors.access_control_detector import AccessControlDetector
+    from ..detectors.erc20_detector import ERC20Detector
+    from ..detectors.signature_detector import SignatureDetector
+    from ..detectors.randomness_detector import RandomnessDetector
+    from ..detectors.merkle_detector import MerkleDetector
+    from ..detectors.timelock_detector import TimelockDetector
+    from ..detectors.reentrancy_detector import ReentrancyDetector
+    from ..detectors.unchecked_call_detector import UncheckedCallDetector
+    from ..detectors.nft_detector import NFTDetector
+    from ..detectors.bridge_detector import BridgeDetector
+    from ..detectors.integer_detector import IntegerDetector
     from ..scoring.engine import RiskScoringEngine
     from ..scoring.false_positive import FalsePositiveReducer
     from ..core.pipeline import PipelineOrchestrator
@@ -310,6 +321,28 @@ def _build_pipeline(audit_config: "Any", llm_config: "Any") -> "Any":
         detectors.append(GasGriefingDetector())
     if audit_config.governance_detector_enabled:
         detectors.append(GovernanceDetector())
+    if audit_config.access_control_detector_enabled:
+        detectors.append(AccessControlDetector())
+    if audit_config.erc20_detector_enabled:
+        detectors.append(ERC20Detector())
+    if audit_config.signature_detector_enabled:
+        detectors.append(SignatureDetector())
+    if audit_config.randomness_detector_enabled:
+        detectors.append(RandomnessDetector())
+    if audit_config.merkle_detector_enabled:
+        detectors.append(MerkleDetector())
+    if audit_config.timelock_detector_enabled:
+        detectors.append(TimelockDetector())
+    if audit_config.reentrancy_detector_enabled:
+        detectors.append(ReentrancyDetector())
+    if audit_config.unchecked_call_detector_enabled:
+        detectors.append(UncheckedCallDetector())
+    if audit_config.nft_detector_enabled:
+        detectors.append(NFTDetector())
+    if audit_config.bridge_detector_enabled:
+        detectors.append(BridgeDetector())
+    if audit_config.integer_detector_enabled:
+        detectors.append(IntegerDetector())
 
     scoring_engine = RiskScoringEngine(
         severity_overrides=audit_config.severity_scores
@@ -383,26 +416,92 @@ def _generate_reports(
         console.print(f"[dim]HTML:[/dim] {html_path}")
 
 
-def _print_summary(result: "Any") -> None:
-    """Print a summary table to the terminal."""
-    summary = result.summary
+_SEV_STYLE: dict[str, tuple[str, str]] = {
+    "Critical": ("bold red", "C"),
+    "High": ("red", "H"),
+    "Medium": ("yellow", "M"),
+    "Low": ("blue", "L"),
+    "Informational": ("dim", "I"),
+    "Gas": ("dim green", "G"),
+}
 
+
+def _print_summary(result: "Any") -> None:
+    """Print detailed findings and summary table to the terminal."""
+    from rich.syntax import Syntax
+
+    summary = result.summary
+    active = [f for f in result.findings if not f.suppressed]
+
+    if not active:
+        console.print("\n[green]No findings.[/green]")
+        return
+
+    # Group by severity in order
+    sev_order = ["Critical", "High", "Medium", "Low", "Informational", "Gas"]
+    by_sev: dict[str, list] = {s: [] for s in sev_order}
+    for f in active:
+        by_sev.setdefault(f.severity.value, []).append(f)
+
+    console.print()
+
+    sev_prefix_counter: dict[str, int] = {}
+    for sev in sev_order:
+        group = by_sev.get(sev, [])
+        if not group:
+            continue
+
+        style, prefix = _SEV_STYLE.get(sev, ("dim", "?"))
+        console.print(f"[{style} bold]{'─' * 60}[/{style} bold]")
+        console.print(f"[{style} bold] {sev} ({len(group)})[/{style} bold]")
+        console.print(f"[{style} bold]{'─' * 60}[/{style} bold]")
+        console.print()
+
+        for finding in group:
+            sev_prefix_counter[sev] = sev_prefix_counter.get(sev, 0) + 1
+            label = f"{prefix}-{sev_prefix_counter[sev]:02d}"
+
+            loc = finding.primary_location()
+            loc_str = f"{loc.file}:{loc.start_line}" if loc else "unknown"
+
+            console.print(
+                Panel.fit(
+                    f"[{style}][{label}] {finding.title}[/{style}]\n"
+                    f"[dim]Category:[/dim] {finding.category.value}  "
+                    f"[dim]Confidence:[/dim] {finding.confidence.value}  "
+                    f"[dim]Score:[/dim] {finding.risk_score}\n"
+                    f"[dim]Location:[/dim] {loc_str}\n"
+                    f"[dim]Detector:[/dim] {finding.source} ({finding.detector_name})",
+                    border_style=style,
+                )
+            )
+
+            # Source code snippet
+            snippet = finding.metadata.get("source_snippet", "")
+            if snippet:
+                console.print(Syntax(snippet, "solidity", theme="monokai", line_numbers=False))
+
+            # Description
+            desc = finding.description
+            if desc:
+                max_len = 500 if sev in ("Critical", "High") else 200
+                if len(desc) > max_len:
+                    desc = desc[:max_len] + "..."
+                console.print(f"[dim]{desc}[/dim]")
+
+            console.print()
+
+    # Summary table
     table = Table(title="Audit Summary", show_header=True, header_style="bold")
     table.add_column("Severity", style="bold")
     table.add_column("Count", justify="right")
 
-    if summary.critical_count > 0:
-        table.add_row("[bold red]Critical[/bold red]", str(summary.critical_count))
-    if summary.high_count > 0:
-        table.add_row("[red]High[/red]", str(summary.high_count))
-    if summary.medium_count > 0:
-        table.add_row("[yellow]Medium[/yellow]", str(summary.medium_count))
-    if summary.low_count > 0:
-        table.add_row("[blue]Low[/blue]", str(summary.low_count))
-    if summary.informational_count > 0:
-        table.add_row("[dim]Informational[/dim]", str(summary.informational_count))
-    if summary.gas_count > 0:
-        table.add_row("[dim]Gas[/dim]", str(summary.gas_count))
+    for sev in sev_order:
+        count = len(by_sev.get(sev, []))
+        if count > 0:
+            style, _ = _SEV_STYLE.get(sev, ("dim", "?"))
+            table.add_row(f"[{style}]{sev}[/{style}]", str(count))
+
     if summary.suppressed_count > 0:
         table.add_row("[dim]Suppressed (FP)[/dim]", str(summary.suppressed_count))
 

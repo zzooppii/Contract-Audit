@@ -147,6 +147,11 @@ def _parse_config(raw: dict[str, Any]) -> FullConfig:
         governance_detector_enabled=governance_cfg.get("enabled", True)
         if governance_cfg
         else detectors_section.get("governance", True),
+        reentrancy_detector_enabled=detectors_section.get("reentrancy", True),
+        unchecked_call_detector_enabled=detectors_section.get("unchecked_call", True),
+        nft_detector_enabled=detectors_section.get("nft", True),
+        bridge_detector_enabled=detectors_section.get("bridge", True),
+        integer_detector_enabled=detectors_section.get("integer", True),
         oracle_max_staleness_seconds=oracle_cfg.get("max_staleness_seconds", 3600),
         oracle_interfaces=oracle_cfg.get(
             "oracle_interfaces", ["AggregatorV3Interface", "IUniswapV3Pool"]

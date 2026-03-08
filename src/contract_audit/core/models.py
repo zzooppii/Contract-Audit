@@ -42,6 +42,11 @@ class FindingCategory(str, Enum):
     INITIALIZATION = "initialization"
     DENIAL_OF_SERVICE = "denial-of-service"
     FRONT_RUNNING = "front-running"
+    WEAK_RANDOMNESS = "weak-randomness"
+    MERKLE_AIRDROP = "merkle-airdrop"
+    TIMELOCK_BYPASS = "timelock-bypass"
+    NFT_VULNERABILITY = "nft-vulnerability"
+    BRIDGE_VULNERABILITY = "bridge-vulnerability"
     TYPO = "typo"
     INFORMATIONAL = "informational"
     OTHER = "other"
@@ -185,6 +190,17 @@ class AuditConfig(BaseModel):
     storage_collision_enabled: bool = True
     gas_griefing_enabled: bool = True
     governance_detector_enabled: bool = True
+    access_control_detector_enabled: bool = True
+    erc20_detector_enabled: bool = True
+    signature_detector_enabled: bool = True
+    randomness_detector_enabled: bool = True
+    merkle_detector_enabled: bool = True
+    timelock_detector_enabled: bool = True
+    reentrancy_detector_enabled: bool = True
+    unchecked_call_detector_enabled: bool = True
+    nft_detector_enabled: bool = True
+    bridge_detector_enabled: bool = True
+    integer_detector_enabled: bool = True
 
     # Detector config
     oracle_max_staleness_seconds: int = 3600
@@ -193,6 +209,7 @@ class AuditConfig(BaseModel):
     )
     governance_min_quorum_threshold: float = 0.04
     governance_min_timelock_seconds: int = 86400
+    timelock_min_delay_seconds: int = 3600
 
     # Scoring
     severity_scores: dict[str, float] = Field(

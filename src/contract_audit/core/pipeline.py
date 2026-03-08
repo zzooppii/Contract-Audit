@@ -94,6 +94,9 @@ class PipelineOrchestrator:
             else:
                 all_findings = self.fp_reducer.reduce(all_findings, context)
 
+        # Attach source code snippets to findings for reports
+        self._attach_source_snippets(all_findings, context)
+
         # Phase 6: LLM enrichment (budget-aware, critical first)
         if self.llm_router and context.config.llm_enabled:
             logger.info("Phase 6: LLM enrichment...")
@@ -290,15 +293,52 @@ class PipelineOrchestrator:
         logger.info(f"LLM enriched {processed_count} findings")
         return findings
 
+    def _attach_source_snippets(
+        self, findings: list[Finding], context: AuditContext
+    ) -> None:
+        """Attach source code snippets to each finding's metadata for reports."""
+        for finding in findings:
+            if finding.metadata.get("source_snippet"):
+                continue
+            snippet = self._get_source_snippet(finding, context)
+            if snippet:
+                finding.metadata["source_snippet"] = snippet
+
     def _get_source_snippet(self, finding: Finding, context: AuditContext) -> str:
         """Extract relevant source code snippet for a finding."""
         for loc in finding.locations[:1]:
-            src = context.contract_sources.get(loc.file, "")
+            src = self._resolve_source(loc.file, context)
             if src:
                 lines = src.splitlines()
-                start = max(0, loc.start_line - 5)
-                end = min(len(lines), loc.end_line + 15)
-                return "\n".join(lines[start:end])
+                # Show a window around the finding with line numbers
+                ctx_before = 2
+                ctx_after = 8
+                start = max(0, loc.start_line - 1 - ctx_before)
+                end = min(len(lines), loc.end_line + ctx_after)
+                numbered = []
+                for i in range(start, end):
+                    line_num = i + 1
+                    marker = ">>>" if loc.start_line <= line_num <= loc.end_line else "   "
+                    numbered.append(f"{marker} {line_num:4d} | {lines[i]}")
+                return "\n".join(numbered)
+        return ""
+
+    @staticmethod
+    def _resolve_source(file_path: str, context: AuditContext) -> str:
+        """Resolve a file path against context.contract_sources, handling
+        relative path mismatches between tools."""
+        # Direct match
+        if file_path in context.contract_sources:
+            return context.contract_sources[file_path]
+        # Try matching by filename
+        filename = file_path.rsplit("/", 1)[-1]
+        for key, src in context.contract_sources.items():
+            if key.rsplit("/", 1)[-1] == filename:
+                return src
+        # Try matching by suffix
+        for key, src in context.contract_sources.items():
+            if key.endswith(file_path) or file_path.endswith(key):
+                return src
         return ""
 
     async def _collect_tool_versions(self) -> dict[str, str]:
