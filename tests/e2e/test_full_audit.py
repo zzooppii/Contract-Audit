@@ -7,14 +7,33 @@ from contract_audit.core.config import load_config
 from contract_audit.core.models import AuditContext, AuditConfig, FindingCategory, Severity
 from contract_audit.core.pipeline import PipelineOrchestrator
 from contract_audit.analyzers.ast_parser.analyzer import ASTAnalyzer
-from contract_audit.detectors.oracle_detector import OracleDetector
+from contract_audit.detectors.access_control_detector import AccessControlDetector
+from contract_audit.detectors.bridge_detector import BridgeDetector
+from contract_audit.detectors.cross_contract_detector import CrossContractDetector
+from contract_audit.detectors.erc20_detector import ERC20Detector
+from contract_audit.detectors.erc4626_detector import ERC4626Detector
 from contract_audit.detectors.flash_loan_detector import FlashLoanDetector
-from contract_audit.detectors.governance_detector import GovernanceDetector
+from contract_audit.detectors.frontrun_detector import FrontrunDetector
 from contract_audit.detectors.gas_griefing import GasGriefingDetector
+from contract_audit.detectors.governance_detector import GovernanceDetector
+from contract_audit.detectors.initialization_detector import InitializationDetector
+from contract_audit.detectors.integer_detector import IntegerDetector
+from contract_audit.detectors.merkle_detector import MerkleDetector
+from contract_audit.detectors.nft_detector import NFTDetector
+from contract_audit.detectors.oracle_detector import OracleDetector
+from contract_audit.detectors.pragma_detector import PragmaDetector
+from contract_audit.detectors.proxy_detector import ProxyDetector
+from contract_audit.detectors.randomness_detector import RandomnessDetector
+from contract_audit.detectors.reentrancy_detector import ReentrancyDetector
+from contract_audit.detectors.signature_detector import SignatureDetector
+from contract_audit.detectors.storage_collision import StorageCollisionDetector
+from contract_audit.detectors.timelock_detector import TimelockDetector
+from contract_audit.detectors.unchecked_call_detector import UncheckedCallDetector
 from contract_audit.scoring.engine import RiskScoringEngine
 from contract_audit.scoring.false_positive import FalsePositiveReducer
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "contracts"
+EXAMPLES_DIR = Path(__file__).parent.parent.parent / "examples"
 
 
 @pytest.fixture
@@ -152,3 +171,130 @@ async def test_empty_project_no_crash(pipeline, audit_config, tmp_path):
 
     assert result is not None
     assert result.summary.total_findings == 0
+
+
+# ---------------------------------------------------------------------------
+# E2E: Example contract tests with all 22 detectors
+# ---------------------------------------------------------------------------
+
+ALL_DETECTORS = [
+    AccessControlDetector(),
+    BridgeDetector(),
+    CrossContractDetector(),
+    ERC20Detector(),
+    ERC4626Detector(),
+    FlashLoanDetector(),
+    FrontrunDetector(),
+    GasGriefingDetector(),
+    GovernanceDetector(),
+    InitializationDetector(),
+    IntegerDetector(),
+    MerkleDetector(),
+    NFTDetector(),
+    OracleDetector(),
+    PragmaDetector(),
+    ProxyDetector(),
+    RandomnessDetector(),
+    ReentrancyDetector(),
+    SignatureDetector(),
+    StorageCollisionDetector(),
+    TimelockDetector(),
+    UncheckedCallDetector(),
+]
+
+
+@pytest.fixture
+def full_pipeline(audit_config):
+    """Pipeline with all 22 detectors."""
+    return PipelineOrchestrator(
+        analyzers=[ASTAnalyzer()],
+        detectors=ALL_DETECTORS,
+        scoring_engine=RiskScoringEngine(),
+        fp_reducer=FalsePositiveReducer(),
+    )
+
+
+# Expected detectors per example contract.
+# Each entry maps a subdirectory to expected detector name substrings
+# and a minimum number of findings.
+EXAMPLE_EXPECTATIONS = {
+    "amm-pool": {"detectors": ["oracle", "reentrancy"], "min_findings": 2},
+    "cross-chain-bridge": {"detectors": ["bridge"], "min_findings": 1},
+    "dao-treasury": {"detectors": ["governance"], "min_findings": 1},
+    "defi-vault": {"detectors": ["oracle"], "min_findings": 1},
+    "erc4626-vault": {"detectors": ["erc4626"], "min_findings": 1},
+    "flash-loan-attack": {"detectors": ["flash_loan"], "min_findings": 1},
+    "gas-auction": {"detectors": ["gas_griefing"], "min_findings": 1},
+    "integer-math": {"detectors": ["integer"], "min_findings": 1},
+    "lending-pool": {"detectors": ["oracle"], "min_findings": 1},
+    "lottery-rng": {"detectors": ["randomness"], "min_findings": 1},
+    "merkle-airdrop": {"detectors": ["merkle"], "min_findings": 1},
+    "multisig-wallet": {"detectors": ["reentrancy"], "min_findings": 1},
+    "nft-auction": {"detectors": ["nft"], "min_findings": 1},
+    "nft-marketplace": {"detectors": ["reentrancy"], "min_findings": 1},
+    "reentrancy-vault": {"detectors": ["reentrancy"], "min_findings": 1},
+    "staking-rewards": {"detectors": ["oracle"], "min_findings": 1},
+    "timelock-vault": {"detectors": ["timelock"], "min_findings": 1},
+    "token-bridge": {"detectors": ["bridge"], "min_findings": 1},
+    "unsafe-vault": {"detectors": ["unchecked_call"], "min_findings": 1},
+    "upgradeable-proxy": {"detectors": ["proxy"], "min_findings": 1},
+    "vulnerable-dex": {"detectors": ["oracle", "frontrun"], "min_findings": 1},
+    "vulnerable-token": {"detectors": ["erc20"], "min_findings": 1},
+    "yield-farm": {"detectors": ["oracle"], "min_findings": 1},
+}
+
+
+def _load_example_sources(example_dir: str) -> dict[str, str]:
+    """Load all .sol files from an example directory."""
+    d = EXAMPLES_DIR / example_dir
+    sources = {}
+    for sol in d.glob("**/*.sol"):
+        sources[sol.name] = sol.read_text()
+    return sources
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "example_dir,expectations",
+    EXAMPLE_EXPECTATIONS.items(),
+    ids=EXAMPLE_EXPECTATIONS.keys(),
+)
+async def test_example_contract(
+    full_pipeline, audit_config, tmp_path, example_dir, expectations
+):
+    """Each example contract should trigger its expected detectors."""
+    sources = _load_example_sources(example_dir)
+    if not sources:
+        pytest.skip(f"No .sol files found in examples/{example_dir}")
+
+    context = AuditContext(
+        project_path=tmp_path,
+        contract_sources=sources,
+        config=audit_config,
+    )
+
+    result = await full_pipeline.run(context)
+    findings = result.findings
+
+    # Check minimum findings count
+    assert len(findings) >= expectations["min_findings"], (
+        f"Expected >= {expectations['min_findings']} findings for {example_dir}, "
+        f"got {len(findings)}: {[f.title for f in findings]}"
+    )
+
+    # Check expected detector coverage
+    finding_sources = {f.source for f in findings}
+    finding_detector_names = {f.detector_name for f in findings}
+    all_identifiers = finding_sources | finding_detector_names
+
+    for expected_detector in expectations["detectors"]:
+        matched = any(expected_detector in ident for ident in all_identifiers)
+        if not matched:
+            # Also check category
+            categories = {f.category.value for f in findings}
+            matched = any(expected_detector in cat for cat in categories)
+        assert matched, (
+            f"Expected detector '{expected_detector}' to fire on {example_dir}, "
+            f"but sources={finding_sources}, detectors={finding_detector_names}, "
+            f"categories={categories if not matched else 'N/A'}"
+        )
