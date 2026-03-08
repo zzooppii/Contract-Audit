@@ -10,6 +10,7 @@ from .formats.sarif import write_sarif
 from .formats.json_report import write_json_report
 from .formats.markdown import write_markdown
 from .formats.html import write_html
+from .formats.pdf import write_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,10 @@ class ReportGenerator:
                     path = output_dir / "audit-results.html"
                     self.generate_html(result, path)
                     output_paths["html"] = path
+                elif fmt == "pdf":
+                    path = output_dir / "audit-results.pdf"
+                    self.generate_pdf(result, path)
+                    output_paths["pdf"] = path
                 else:
                     logger.warning(f"Unknown report format: {fmt}")
             except Exception as e:
@@ -75,3 +80,8 @@ class ReportGenerator:
         """Generate HTML report."""
         write_html(result, path)
         logger.info(f"HTML report: {path}")
+
+    def generate_pdf(self, result: AuditResult, path: Path) -> None:
+        """Generate PDF report."""
+        write_pdf(result, path)
+        logger.info(f"PDF report: {path}")
