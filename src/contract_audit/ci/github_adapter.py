@@ -121,6 +121,89 @@ class GitHubAdapter:
 
         return "\n".join(lines)
 
+    def upload_sarif(self, sarif_path: Path) -> bool:
+        """Upload SARIF file to GitHub Code Scanning API."""
+        if not self.token or not self.repo:
+            logger.warning("No GITHUB_TOKEN or GITHUB_REPOSITORY, skipping SARIF upload")
+            return False
+
+        if not sarif_path.exists():
+            logger.warning(f"SARIF file not found: {sarif_path}")
+            return False
+
+        try:
+            import base64
+            import gzip
+
+            sarif_content = sarif_path.read_bytes()
+            compressed = gzip.compress(sarif_content)
+            encoded = base64.b64encode(compressed).decode()
+
+            commit_sha = os.environ.get("GITHUB_SHA", "")
+            ref = os.environ.get("GITHUB_REF", "")
+
+            proc = subprocess.run(
+                [
+                    "gh", "api",
+                    f"repos/{self.repo}/code-scanning/sarifs",
+                    "-X", "POST",
+                    "-f", f"commit_sha={commit_sha}",
+                    "-f", f"ref={ref}",
+                    "-f", f"sarif={encoded}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env={**os.environ, "GH_TOKEN": self.token},
+            )
+
+            if proc.returncode == 0:
+                logger.info("SARIF uploaded to GitHub Code Scanning")
+                return True
+            else:
+                logger.warning(f"SARIF upload failed: {proc.stderr}")
+                return False
+
+        except Exception as e:
+            logger.warning(f"SARIF upload error: {e}")
+            return False
+
+    def filter_findings_by_diff(
+        self, result: AuditResult, base_ref: str = "origin/main"
+    ) -> list:
+        """Filter findings to only those in changed files/lines."""
+        try:
+            proc = subprocess.run(
+                ["git", "diff", "--name-only", base_ref, "HEAD"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            if proc.returncode != 0:
+                return result.active_findings
+
+            changed_files = set(proc.stdout.strip().splitlines())
+
+            filtered = [
+                f for f in result.active_findings
+                if any(
+                    loc.file in changed_files
+                    or any(loc.file.endswith(cf) for cf in changed_files)
+                    for loc in f.locations
+                )
+            ]
+
+            logger.info(
+                f"Diff filter: {len(filtered)}/{len(result.active_findings)} "
+                f"findings in changed files"
+            )
+            return filtered
+
+        except Exception as e:
+            logger.warning(f"Diff filtering failed: {e}")
+            return result.active_findings
+
     def get_ci_exit_code(self, result: AuditResult, config: Any) -> int:
         """Get the appropriate CI exit code based on findings."""
         if config.ci_fail_on_critical and result.summary.critical_count > 0:

@@ -72,6 +72,9 @@ def audit(
         None, "--severity", "-s",
         help="Minimum severity to include: Critical,High,Medium,Low,Informational"
     ),
+    compare_to: Optional[Path] = typer.Option(
+        None, "--compare-to", help="Path to previous audit JSON for comparison"
+    ),
     no_llm: bool = typer.Option(False, "--no-llm", help="Disable LLM enrichment"),
     ci_mode: bool = typer.Option(False, "--ci-mode", help="CI mode: exit non-zero on findings"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
@@ -148,6 +151,13 @@ def audit(
             output_markdown=output_markdown,
             output_json=output_json,
         )
+
+    # Comparison with previous results
+    if compare_to:
+        from ..reporting.comparator import AuditComparator
+        comparator = AuditComparator()
+        delta = comparator.compare(result, compare_to)
+        console.print(f"\n{delta.summary_text()}")
 
     # Print summary table
     _print_summary(result)
@@ -296,6 +306,11 @@ def _build_pipeline(audit_config: "Any", llm_config: "Any") -> "Any":
     from ..detectors.nft_detector import NFTDetector
     from ..detectors.bridge_detector import BridgeDetector
     from ..detectors.integer_detector import IntegerDetector
+    from ..detectors.frontrun_detector import FrontrunDetector
+    from ..detectors.initialization_detector import InitializationDetector
+    from ..detectors.erc4626_detector import ERC4626Detector
+    from ..detectors.pragma_detector import PragmaDetector
+    from ..detectors.cross_contract_detector import CrossContractDetector
     from ..scoring.engine import RiskScoringEngine
     from ..scoring.false_positive import FalsePositiveReducer
     from ..core.pipeline import PipelineOrchestrator
@@ -343,6 +358,16 @@ def _build_pipeline(audit_config: "Any", llm_config: "Any") -> "Any":
         detectors.append(BridgeDetector())
     if audit_config.integer_detector_enabled:
         detectors.append(IntegerDetector())
+    if audit_config.frontrun_detector_enabled:
+        detectors.append(FrontrunDetector())
+    if audit_config.initialization_detector_enabled:
+        detectors.append(InitializationDetector())
+    if audit_config.erc4626_detector_enabled:
+        detectors.append(ERC4626Detector())
+    if audit_config.pragma_detector_enabled:
+        detectors.append(PragmaDetector())
+    if audit_config.cross_contract_detector_enabled:
+        detectors.append(CrossContractDetector())
 
     scoring_engine = RiskScoringEngine(
         severity_overrides=audit_config.severity_scores
@@ -414,6 +439,11 @@ def _generate_reports(
         html_path = output_dir / "audit-results.html"
         generator.generate_html(result, html_path)
         console.print(f"[dim]HTML:[/dim] {html_path}")
+
+    if "pdf" in formats:
+        pdf_path = output_dir / "audit-results.pdf"
+        generator.generate_pdf(result, pdf_path)
+        console.print(f"[dim]PDF:[/dim] {pdf_path}")
 
 
 _SEV_STYLE: dict[str, tuple[str, str]] = {
