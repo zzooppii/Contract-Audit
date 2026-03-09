@@ -21,11 +21,14 @@ AI-assisted Smart Contract Audit Engine combining static analysis, dynamic analy
 ```bash
 pip install contract-audit
 
-# Run audit
+# Run audit with config file
 contract-audit audit ./src --config audit.toml
 
-# Run without LLM (static analysis only)
+# Run without LLM (static analysis only), verbose output
 contract-audit audit ./src --no-llm -v
+
+# Generate reports in multiple formats (sarif, json, markdown, html, pdf)
+contract-audit audit ./src --no-llm --formats sarif,json,markdown
 
 # Compare with previous audit
 contract-audit audit ./src --compare-to previous-report.json
@@ -37,6 +40,22 @@ contract-audit init
 contract-audit login --anthropic
 contract-audit login --google
 ```
+
+### CLI Options
+
+| Option | Description |
+|--------|-------------|
+| `--config`, `-c` | Path to audit config file (TOML) |
+| `--no-llm` | Skip LLM analysis (static analysis only) |
+| `--verbose`, `-v` | Enable verbose logging (DEBUG level) |
+| `--formats`, `-f` | Comma-separated report formats: `sarif`, `json`, `markdown`, `html`, `pdf` |
+| `--output-dir` | Output directory for generated reports |
+| `--output-sarif` | Output path for SARIF report |
+| `--output-json` | Output path for JSON report |
+| `--output-markdown` | Output path for Markdown report |
+| `--compare-to` | Path to previous report for diff comparison |
+| `--severity-filter` | Comma-separated severity filter (e.g. `high,critical`) |
+| `--ci-mode` | CI mode: exit non-zero on findings |
 
 ## Architecture
 
@@ -65,16 +84,82 @@ enabled = true
 max_budget_usd = 10.0
 
 [llm.providers.anthropic]
-api_key_env = "ANTHROPIC_API_KEY"
+auth_method = "oauth"                    # "oauth" (recommended) or "api_key"
+api_key_env = "ANTHROPIC_API_KEY"        # Fallback for CI environments
 
 [llm.providers.google]
-api_key_env = "GOOGLE_AI_API_KEY"
+auth_method = "oauth"                    # "oauth" (recommended) or "api_key"
+api_key_env = "GOOGLE_AI_API_KEY"        # Fallback for CI environments
 
 [analysis]
 slither_enabled = true
 aderyn_enabled = true
 foundry_fuzz_enabled = true
 symbolic_enabled = false
+```
+
+### Authentication
+
+```bash
+# OAuth login (recommended) - tokens stored securely via keyring
+contract-audit login --anthropic
+contract-audit login --google
+
+# Or use API keys via environment variables (for CI)
+export ANTHROPIC_API_KEY="sk-ant-..."
+export GOOGLE_AI_API_KEY="AI..."
+```
+
+## MCP Integration
+
+Use contract-audit as an MCP tool server in Claude Code or any MCP-compatible client.
+
+### Setup
+
+Add to your Claude Code MCP config (`~/.claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "contract-audit": {
+      "command": "python3.11",
+      "args": ["-m", "contract_audit.mcp"]
+    }
+  }
+}
+```
+
+### Available Tools
+
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `audit_contract` | `project_path` | Full project audit (22 detectors + AST parser + Slither + Aderyn) |
+| `audit_source` | `source_code`, `filename?` | Inline source code audit (Slither/Aderyn disabled) |
+| `list_detectors` | — | List all 22 detectors with descriptions |
+
+### Usage
+
+Once configured, Claude Code can directly use these tools:
+
+```
+> Audit the contracts in /path/to/my-project
+  → calls audit_contract with project_path="/path/to/my-project"
+
+> Check this Solidity code for vulnerabilities: <paste code>
+  → calls audit_source with the pasted source code
+```
+
+### Authentication (for LLM features)
+
+The MCP server runs with LLM disabled by default. For the CLI with LLM enrichment:
+
+```bash
+# Anthropic — use API key
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# Google — use API key or OAuth
+export GOOGLE_AI_API_KEY="AI..."
+contract-audit login --google
 ```
 
 ## CI Integration
@@ -107,6 +192,14 @@ ruff check src/ tests/
 
 # Type check
 mypy src/
+
+# 1. Create audit.toml in the audit target folder
+cd ~/my-defi-project
+contract-audit init          # audit.toml created
+contract-audit audit ./src   # Automatically use audit.toml in the same folder
+
+# 2. Or specify absolute path
+contract-audit audit ~/my-defi-project/src --config ~/configs/audit.toml
 ```
 
 ## Test Suite

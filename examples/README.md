@@ -16,7 +16,25 @@ contract-audit audit ./examples --no-llm --formats sarif,json,markdown
 contract-audit audit ./examples/defi-vault --formats markdown,html
 ```
 
-## Example Contracts (23 total)
+### Via MCP (Claude Code)
+
+With the MCP server configured, ask Claude Code directly:
+
+```
+> Audit the contracts in ./examples/defi-vault
+> Check this Solidity code for issues: <paste from any example>
+> List available security detectors
+```
+
+## Example Contracts (24 total)
+
+### Multi-Contract Examples
+
+| # | Directory | Contracts | Target Detectors | Key Vulnerabilities |
+|---|-----------|-----------|-----------------|---------------------|
+| 24 | `defi-protocol` | IProtocol.sol, Token.sol, Oracle.sol, Pool.sol, Router.sol, Governance.sol | Cross-Contract, Oracle, Reentrancy, Flash Loan, Governance, Front-run, Access Control, Unchecked Call | Cross-contract reentrancy (Pool↔Token), oracle manipulation via single EOA, flash loan governance attack, no timelock, approve race condition, flash swap callback reentrancy, liquidation overflow |
+
+### Single-Contract Examples
 
 | # | Directory | Contract | Target Detectors | Key Vulnerabilities |
 |---|-----------|----------|-----------------|---------------------|
@@ -67,5 +85,5 @@ All 22 detectors are exercised by at least one example contract:
 - **Bridge**: cross-chain-bridge, token-bridge
 - **NFT**: nft-auction
 - **Unchecked Call**: unsafe-vault
-- **Cross-Contract**: (tested via edge cases)
+- **Cross-Contract**: defi-protocol
 - **Pragma**: (tested via edge cases)
