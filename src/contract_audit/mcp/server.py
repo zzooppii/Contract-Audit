@@ -15,13 +15,25 @@ from mcp.types import TextContent, Tool
 logger = logging.getLogger(__name__)
 
 DETECTOR_DESCRIPTIONS: list[tuple[str, str]] = [
-    ("proxy_detector", "Detects proxy upgrade vulnerabilities (unprotected upgrades, storage collisions)"),
-    ("flash_loan_detector", "Detects flash loan attack vectors (unvalidated callbacks, price manipulation)"),
+    (
+        "proxy_detector",
+        "Detects proxy upgrade vulnerabilities (unprotected upgrades, storage collisions)",
+    ),
+    (
+        "flash_loan_detector",
+        "Detects flash loan attack vectors (unvalidated callbacks, price manipulation)",
+    ),
     ("oracle_detector", "Detects oracle manipulation risks (stale prices, spot price usage)"),
     ("storage_collision", "Detects storage layout collisions in upgradeable contracts"),
-    ("gas_griefing", "Detects gas griefing / DoS vectors (unbounded loops, external calls in loops)"),
+    (
+        "gas_griefing",
+        "Detects gas griefing / DoS vectors (unbounded loops, external calls in loops)",
+    ),
     ("governance_detector", "Detects governance attack vectors (low quorum, missing timelock)"),
-    ("access_control_detector", "Detects access control issues (missing modifiers, centralization risks)"),
+    (
+        "access_control_detector",
+        "Detects access control issues (missing modifiers, centralization risks)",
+    ),
     ("erc20_detector", "Detects ERC-20 compliance issues (approval race, missing return values)"),
     ("signature_detector", "Detects signature replay and malleability vulnerabilities"),
     ("randomness_detector", "Detects weak randomness sources (block.timestamp, blockhash)"),
@@ -35,8 +47,14 @@ DETECTOR_DESCRIPTIONS: list[tuple[str, str]] = [
     ("frontrun_detector", "Detects front-running vectors (missing slippage, deadline, sandwich)"),
     ("initialization_detector", "Detects initializer issues (missing modifier, reinitializable)"),
     ("erc4626_detector", "Detects ERC-4626 vault issues (inflation attack, rounding direction)"),
-    ("pragma_detector", "Detects pragma issues (floating version, outdated compiler, missing SPDX)"),
-    ("cross_contract_detector", "Detects cross-contract reentrancy cycles and interface mismatches"),
+    (
+        "pragma_detector",
+        "Detects pragma issues (floating version, outdated compiler, missing SPDX)",
+    ),
+    (
+        "cross_contract_detector",
+        "Detects cross-contract reentrancy cycles and interface mismatches",
+    ),
 ]
 
 
