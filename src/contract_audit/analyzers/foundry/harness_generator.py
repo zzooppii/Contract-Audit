@@ -38,11 +38,7 @@ def generate_fuzz_harness(
 
         function_tests.append(f"""
     function testFuzz_{fn_name}({', '.join(params)}) public {{
-        try target.{fn_name}({', '.join(param_names)}) {{
-            // Should not revert unexpectedly
-        }} catch {{
-            // Expected reverts are acceptable
-        }}
+        target.{fn_name}({', '.join(param_names)});
     }}""")
 
     content = f"""// SPDX-License-Identifier: MIT
@@ -61,11 +57,9 @@ contract Fuzz{contract_name}Test is Test {{
     }}
 {''.join(function_tests)}
 
-    /// @notice Invariant: contract ETH balance should not decrease unexpectedly
-    function invariant_ethBalance() public {{
-        uint256 balance = address(target).balance;
-        // Add protocol-specific invariants here
-        assertTrue(balance >= 0, "Balance invariant");
+    /// @notice Invariant: contract should still be deployed
+    function invariant_contractExists() public {{
+        assertTrue(address(target).code.length > 0, "Contract should still exist");
     }}
 }}
 """
@@ -99,41 +93,38 @@ def _map_type(solidity_type: str) -> str:
     return solidity_type
 
 
-# --- Finding-based targeted harness generation ---
+def _extract_function_params(source: str, func_name: str) -> list[tuple[str, str]]:
+    """Extract (type, name) pairs from a Solidity function signature in source.
 
-_CATEGORY_TEMPLATES: dict[str, str] = {
-    "reentrancy": """
-    /// @notice Test reentrancy via callback
-    function test_reentrancy_{fn}() public {{
-        // Setup attacker contract that re-enters during callback
-        vm.prank(attacker);
-        try target.{fn}({args}) {{
-            // Check if state was corrupted by reentrancy
-        }} catch {{}}
-    }}""",
-    "arithmetic": """
-    /// @notice Test arithmetic boundary values
-    function test_arithmetic_{fn}() public {{
-        // Test with 0
-        try target.{fn}(0{extra_zeros}) {{}} catch {{}}
-        // Test with max uint
-        try target.{fn}(type(uint256).max{extra_max}) {{}} catch {{}}
-        // Test with 1
-        try target.{fn}(1{extra_ones}) {{}} catch {{}}
-    }}""",
-    "access-control": """
-    /// @notice Test unauthorized access
-    function test_unauthorized_{fn}() public {{
-        address unauthorized = address(0xdead);
-        vm.prank(unauthorized);
-        try target.{fn}({args}) {{
-            // If this succeeds, access control is missing
-            revert("Unauthorized call should have reverted");
-        }} catch {{
-            // Expected: unauthorized call reverts
-        }}
-    }}""",
-}
+    Returns list of (solidity_type, param_name) tuples. Falls back to empty
+    list if the function signature cannot be found or parsed.
+    """
+    pattern = rf'function\s+{re.escape(func_name)}\s*\(([^)]*)\)'
+    match = re.search(pattern, source)
+    if not match:
+        return []
+    params_str = match.group(1).strip()
+    if not params_str:
+        return []
+
+    result: list[tuple[str, str]] = []
+    # Strip data location keywords; they are only valid for calldata/memory args
+    _DATA_LOCATION = {"memory", "calldata", "storage"}
+    for idx, part in enumerate(params_str.split(",")):
+        tokens = [t for t in part.strip().split() if t not in _DATA_LOCATION]
+        if not tokens:
+            continue
+        if len(tokens) >= 2:
+            type_ = " ".join(tokens[:-1])
+            name = tokens[-1].lstrip("_") or f"param{idx}"
+        else:
+            type_ = tokens[0]
+            name = f"param{idx}"
+        result.append((type_, name))
+    return result
+
+
+# --- Finding-based targeted harness generation ---
 
 
 def generate_targeted_harness(
@@ -143,6 +134,11 @@ def generate_targeted_harness(
     output_dir: Path,
 ) -> Path:
     """Generate a targeted fuzz test based on a specific finding.
+
+    For reentrancy findings, generates a real attacker contract with a
+    receive()/fallback() that re-enters the target function. For arithmetic
+    and access-control findings, generates boundary-value and permission tests
+    with function arguments inferred from the source code.
 
     Args:
         contract_name: Name of the vulnerable contract
@@ -159,49 +155,234 @@ def generate_targeted_harness(
 
     func_name = ""
     if finding.locations:
-        func_name = finding.locations[0].function or "target"
+        func_name = finding.locations[0].function or ""
 
-    # Select template based on category
-    template_key = "reentrancy"
-    if finding.category in (FindingCategory.ARITHMETIC,):
-        template_key = "arithmetic"
-    elif finding.category in (FindingCategory.ACCESS_CONTROL,):
-        template_key = "access-control"
-    elif finding.category in (FindingCategory.REENTRANCY,):
-        template_key = "reentrancy"
+    safe_fn = re.sub(r'[^a-zA-Z0-9_]', '_', func_name) if func_name else "unknown"
 
-    template = _CATEGORY_TEMPLATES.get(template_key, _CATEGORY_TEMPLATES["reentrancy"])
-
-    # Build test body
-    safe_fn = re.sub(r'[^a-zA-Z0-9_]', '_', func_name)
-    test_body = template.format(
-        fn=safe_fn,
-        args="",
-        extra_zeros="",
-        extra_max="",
-        extra_ones="",
-    )
+    # Extract function parameters from source for argument generation
+    params = _extract_function_params(source, func_name) if func_name else []
+    param_decls = ", ".join(f"{t} {n}" for t, n in params)
+    call_args = ", ".join(n for _, n in params)
 
     test_file = output_dir / f"Targeted_{contract_name}_{safe_fn}.t.sol"
 
-    content = f"""// SPDX-License-Identifier: MIT
+    if finding.category in (FindingCategory.REENTRANCY,):
+        content = _build_reentrancy_harness(
+            contract_name, safe_fn, func_name, params, param_decls, call_args, finding
+        )
+    elif finding.category in (FindingCategory.ARITHMETIC,):
+        content = _build_arithmetic_harness(
+            contract_name, safe_fn, func_name, params, param_decls, call_args, finding
+        )
+    elif finding.category in (FindingCategory.ACCESS_CONTROL,):
+        content = _build_access_control_harness(
+            contract_name, safe_fn, func_name, params, param_decls, call_args, finding
+        )
+    else:
+        content = _build_reentrancy_harness(
+            contract_name, safe_fn, func_name, params, param_decls, call_args, finding
+        )
+
+    test_file.write_text(content)
+    return test_file
+
+
+def _build_reentrancy_harness(
+    contract_name: str,
+    safe_fn: str,
+    func_name: str,
+    params: list[tuple[str, str]],
+    param_decls: str,
+    call_args: str,
+    finding: Any,
+) -> str:
+    """Generate a reentrancy test with a real attacker contract that re-enters."""
+    # Store params as private fields so they can be used in receive()/fallback()
+    stored_fields = "\n    ".join(f"{t} private _{n};" for t, n in params)
+    store_args = "\n        ".join(f"_{n} = {n};" for _, n in params)
+    stored_call_args = ", ".join(f"_{n}" for _, n in params)
+
+    return f"""// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 import "../src/{contract_name}.sol";
 
-/// @title Targeted test for {finding.title}
+/// @notice Reentrancy attacker that re-enters {func_name or contract_name} via ETH callback
+contract {contract_name}ReentrancyAttacker {{
+    {contract_name} public target;
+    uint256 public attackCount;
+    bool private _attacking;
+    {stored_fields}
+
+    constructor(address _target) {{
+        target = {contract_name}(_target);
+    }}
+
+    function attack({param_decls}) external payable {{
+        {store_args}
+        target.{func_name or "deposit"}({call_args});
+    }}
+
+    receive() external payable {{
+        if (attackCount < 2 && !_attacking) {{
+            attackCount++;
+            _attacking = true;
+            target.{func_name or "deposit"}({stored_call_args});
+            _attacking = false;
+        }}
+    }}
+
+    fallback() external payable {{
+        if (attackCount < 2 && !_attacking) {{
+            attackCount++;
+            _attacking = true;
+            target.{func_name or "deposit"}({stored_call_args});
+            _attacking = false;
+        }}
+    }}
+}}
+
+/// @title Targeted reentrancy test for {finding.title}
 /// @notice Auto-generated by contract-audit based on finding
 contract Targeted_{contract_name}_{safe_fn}_Test is Test {{
     {contract_name} target;
-    address attacker = address(0xBEEF);
 
     function setUp() public {{
         target = new {contract_name}();
-        vm.deal(attacker, 100 ether);
     }}
-{test_body}
+
+    /// @notice Test reentrancy via ETH callback — attacker re-enters {func_name or "target function"}
+    function test_reentrancy_{safe_fn}({param_decls}) public {{
+        {contract_name}ReentrancyAttacker attacker = new {contract_name}ReentrancyAttacker(address(target));
+        vm.deal(address(attacker), 100 ether);
+        attacker.attack{{value: 1 ether}}({call_args});
+        // A proper reentrancy guard prevents more than one entry
+        assertLe(attacker.attackCount(), 1, "Reentrancy guard missing: function re-entered");
+    }}
 }}
 """
-    test_file.write_text(content)
-    return test_file
+
+
+def _build_arithmetic_harness(
+    contract_name: str,
+    safe_fn: str,
+    func_name: str,
+    params: list[tuple[str, str]],
+    param_decls: str,
+    call_args: str,
+    finding: Any,
+) -> str:
+    """Generate arithmetic boundary tests (0, 1, max) for the vulnerable function."""
+    # If no params were found from source, fall back to a single uint256 fuzz param
+    effective_params = params or [("uint256", "amount")]
+    effective_decls = param_decls or "uint256 amount"
+    effective_call = call_args or "amount"
+
+    # Build boundary call args: replace first numeric param with boundary value
+    def _boundary_args(value: str) -> str:
+        if not effective_params:
+            return ""
+        result = []
+        replaced = False
+        for t, n in effective_params:
+            if not replaced and any(t.startswith(p) for p in ("uint", "int")):
+                result.append(value)
+                replaced = True
+            else:
+                result.append(n)
+        # If no numeric param found, just append the value as first arg
+        if not replaced:
+            result = [value] + [n for _, n in effective_params[1:]]
+        return ", ".join(result)
+
+    args_zero = _boundary_args("0")
+    args_max = _boundary_args("type(uint256).max")
+    args_one = _boundary_args("1")
+
+    return f"""// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "forge-std/Test.sol";
+import "../src/{contract_name}.sol";
+
+/// @title Targeted arithmetic test for {finding.title}
+/// @notice Auto-generated by contract-audit based on finding
+contract Targeted_{contract_name}_{safe_fn}_Test is Test {{
+    {contract_name} target;
+
+    function setUp() public {{
+        target = new {contract_name}();
+    }}
+
+    /// @notice Fuzz test for {func_name or "target function"} with arbitrary inputs
+    function testFuzz_{safe_fn}({effective_decls}) public {{
+        target.{func_name}({effective_call});
+    }}
+
+    /// @notice Boundary: zero value should not cause unexpected behavior
+    function test_{safe_fn}_zero() public {{
+        target.{func_name}({args_zero});
+    }}
+
+    /// @notice Boundary: max uint256 should not overflow
+    function test_{safe_fn}_max() public {{
+        target.{func_name}({args_max});
+    }}
+
+    /// @notice Boundary: value of 1 (near-zero edge case)
+    function test_{safe_fn}_one() public {{
+        target.{func_name}({args_one});
+    }}
+}}
+"""
+
+
+def _build_access_control_harness(
+    contract_name: str,
+    safe_fn: str,
+    func_name: str,
+    params: list[tuple[str, str]],
+    param_decls: str,
+    call_args: str,
+    finding: Any,
+) -> str:
+    """Generate access-control test that expects unauthorized callers to be rejected."""
+    return f"""// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "forge-std/Test.sol";
+import "../src/{contract_name}.sol";
+
+/// @title Targeted access-control test for {finding.title}
+/// @notice Auto-generated by contract-audit based on finding
+contract Targeted_{contract_name}_{safe_fn}_Test is Test {{
+    {contract_name} target;
+
+    function setUp() public {{
+        target = new {contract_name}();
+    }}
+
+    /// @notice Unauthorized caller should be rejected
+    function test_unauthorized_{safe_fn}({param_decls}) public {{
+        address unauthorized = address(0xdead);
+        vm.prank(unauthorized);
+        vm.expectRevert();
+        target.{func_name}({call_args});
+    }}
+
+    /// @notice Fuzz caller address — only owner/authorized should succeed
+    function testFuzz_access_{safe_fn}(address caller{", " + param_decls if param_decls else ""}) public {{
+        vm.assume(caller != address(0));
+        vm.prank(caller);
+        // Either it reverts (good: access control enforced) or succeeds (caller was authorized)
+        // Finding suggests there may be cases where unauthorized callers succeed
+        try target.{func_name}({call_args}) {{
+            // If this succeeds, verify caller was actually authorized
+            // Add protocol-specific authorization check here
+        }} catch {{
+            // Expected for unauthorized callers
+        }}
+    }}
+}}
+"""
