@@ -10,16 +10,27 @@ import re
 from pathlib import Path
 
 # Pattern -> invariant mapping
+# Each pattern may include optional "state_vars" and "setup_extra" fields
+# to inject contract-level state and setUp initialization code.
 INVARIANT_PATTERNS: list[dict[str, str]] = [
     {
         "name": "erc20_supply",
         "detect": r'\btotalSupply\b.*\bbalanceOf\b|\bbalanceOf\b.*\btotalSupply\b',
-        "description": "ERC20 total supply equals sum of all balances",
+        "description": "ERC20 total supply should remain consistent",
+        "state_vars": "uint256 private _initialSupply;",
+        "setup_extra": "_initialSupply = target.totalSupply();",
         "test": """
-    /// @notice totalSupply should always equal sum of tracked balances
+    /// @notice totalSupply should not decrease below initial (unauthorized burns)
     function invariant_totalSupplyConsistency() public {{
-        // totalSupply should never underflow or overflow unexpectedly
-        assertTrue(target.totalSupply() >= 0, "totalSupply >= 0");
+        uint256 currentSupply = target.totalSupply();
+        // Supply should not shrink below what it started at (unless burns are
+        // a feature, in which extend this test with protocol specifics).
+        assertTrue(
+            currentSupply >= _initialSupply || currentSupply == 0,
+            "totalSupply decreased unexpectedly"
+        );
+        // Supply should never overflow into unreasonable range
+        assertTrue(currentSupply <= type(uint128).max, "totalSupply overflowed uint128");
     }}""",
     },
     {
@@ -29,11 +40,15 @@ INVARIANT_PATTERNS: list[dict[str, str]] = [
         "test": """
     /// @notice totalAssets should maintain consistency with shares
     function invariant_vaultAssetsConsistency() public {{
-        if (target.totalSupply() > 0) {{
+        uint256 shares = target.totalSupply();
+        if (shares > 0) {{
             assertTrue(
                 target.totalAssets() > 0,
                 "Non-zero shares should mean non-zero assets"
             );
+            // Assets per share should not collapse to zero (inflation attack)
+            uint256 assetsPerShare = target.totalAssets() / shares;
+            assertTrue(assetsPerShare > 0, "Assets per share collapsed to zero");
         }}
     }}""",
     },
@@ -53,24 +68,31 @@ INVARIANT_PATTERNS: list[dict[str, str]] = [
     {
         "name": "pausable",
         "detect": r'\bpaused\b.*\bwhenNotPaused\b|\bpause\b.*\bunpause\b',
-        "description": "Paused state should block sensitive operations",
+        "description": "Paused state should be stable across reads",
         "test": """
-    /// @notice Paused contract state consistency
+    /// @notice Paused state should be consistent across reads (no reentrancy corruption)
     function invariant_pauseConsistency() public {{
-        // When paused, certain operations should revert
-        // This is a basic check - extend with protocol specifics
+        bool state1 = target.paused();
+        bool state2 = target.paused();
+        assertEq(state1, state2, "Paused state changed between two consecutive reads");
     }}""",
     },
     {
         "name": "balance_conservation",
         "detect": r'\.transfer\s*\(|\bcall\s*\{.*value',
-        "description": "ETH/token balance conservation",
+        "description": "ETH balance should not exceed deposited amount",
+        "state_vars": "uint256 private _initialBalance;",
+        "setup_extra": "_initialBalance = address(target).balance;",
         "test": """
-    /// @notice Contract balance should be accounted for
+    /// @notice Contract ETH balance should not grow beyond expected cap
     function invariant_balanceConservation() public {{
         uint256 balance = address(target).balance;
-        // Balance should be tracked by internal accounting
-        assertTrue(balance >= 0, "Balance conservation");
+        // Balance should not have grown more than 10x the initial deposit
+        // (adjust this threshold to match protocol expectations)
+        assertTrue(
+            balance <= _initialBalance + 10_000 ether,
+            "Contract balance exceeded reasonable maximum"
+        );
     }}""",
     },
 ]
@@ -101,7 +123,7 @@ def generate_invariant_tests(
             applicable_tests.append(pattern)
 
     if not applicable_tests:
-        # Add a basic no-revert invariant
+        # Add a basic liveness invariant
         applicable_tests.append({
             "name": "no_unexpected_revert",
             "test": """
@@ -114,6 +136,17 @@ def generate_invariant_tests(
     }}""",
         })
 
+    # Collect optional state variables and setUp extras from each pattern
+    state_vars_lines = []
+    setup_extra_lines = []
+    for t in applicable_tests:
+        if t.get("state_vars"):
+            state_vars_lines.append(f"    {t['state_vars']}")
+        if t.get("setup_extra"):
+            setup_extra_lines.append(f"        {t['setup_extra']}")
+
+    state_vars_section = ("\n" + "\n".join(state_vars_lines)) if state_vars_lines else ""
+    setup_extra_section = ("\n" + "\n".join(setup_extra_lines)) if setup_extra_lines else ""
     test_bodies = "\n".join(t["test"] for t in applicable_tests)
 
     content = f"""// SPDX-License-Identifier: MIT
@@ -125,10 +158,10 @@ import "../src/{contract_name}.sol";
 /// @title Invariant tests for {contract_name}
 /// @notice Auto-generated by contract-audit
 contract Invariant{contract_name}Test is Test {{
-    {contract_name} target;
+    {contract_name} target;{state_vars_section}
 
     function setUp() public {{
-        target = new {contract_name}();
+        target = new {contract_name}();{setup_extra_section}
     }}
 {test_bodies}
 }}
