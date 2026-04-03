@@ -119,8 +119,15 @@ class SymbolicAnalyzer:
 
                 try:
                     if self.hevm.is_available():
+                        func_name = (
+                            finding.locations[0].function
+                            if finding.locations
+                            else None
+                        )
+                        sig = self._get_function_sig(func_name, contract_data)
                         violations = await self.hevm.run_symbolic(
                             bytecode=bytecode,
+                            sig=sig,
                             timeout=30,
                         )
                         if violations:
@@ -128,12 +135,27 @@ class SymbolicAnalyzer:
                             finding.metadata["symbolic_verified"] = True
                             logger.info(
                                 f"Symbolic execution confirmed '{finding.title}'"
+                                + (f" via {sig}" if sig else "")
                             )
                             return True
                 except Exception as e:
                     logger.debug(f"Symbolic verification failed: {e}")
 
         return False
+
+    def _get_function_sig(
+        self, func_name: str | None, contract_data: dict[str, Any]
+    ) -> str | None:
+        """Build canonical function signature from ABI for targeted hevm analysis."""
+        if not func_name:
+            return None
+        abi = contract_data.get("abi", [])
+        for item in abi:
+            if item.get("type") == "function" and item.get("name") == func_name:
+                inputs = item.get("inputs", [])
+                types = ",".join(i.get("type", "uint256") for i in inputs)
+                return f"{func_name}({types})"
+        return None
 
     def _violation_to_finding(
         self,
