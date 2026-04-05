@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from .models import AuditContext, AuditMetadata, AuditResult, AuditSummary, Finding
+from .models import AuditContext, AuditMetadata, AuditResult, AuditSummary, Finding, Severity
 
 if TYPE_CHECKING:
     from ..llm.router import LLMRouter
@@ -101,9 +101,10 @@ class PipelineOrchestrator:
         self._attach_source_snippets(all_findings, context)
 
         # Phase 6: LLM enrichment (budget-aware, critical first)
+        executive_summary: str | None = None
         if self.llm_router and context.config.llm_enabled:
             logger.info("Phase 6: LLM enrichment...")
-            all_findings = await self._phase_llm_enrich(all_findings, context)
+            all_findings, executive_summary = await self._phase_llm_enrich(all_findings, context)
 
         # Finalize
         metadata.finalize()
@@ -116,6 +117,8 @@ class PipelineOrchestrator:
         summary = AuditSummary.from_findings(all_findings)
         if self.scoring_engine:
             summary.overall_risk_score = self.scoring_engine.aggregate_score(all_findings)
+        if executive_summary:
+            summary.executive_summary = executive_summary
 
         logger.info(
             f"Audit complete: {summary.total_findings} findings "
@@ -211,8 +214,33 @@ class PipelineOrchestrator:
     ) -> list[Finding]:
         """Phase 4: Optional dynamic analysis with targeted harness generation."""
         findings = []
-        tasks = []
+        symbolic = None
 
+        # Step 1: Generate targeted harnesses BEFORE running forge so they are included
+        if context.config.foundry_fuzz_enabled and existing_findings:
+            try:
+                from ..analyzers.foundry.harness_generator import generate_targeted_harness
+
+                test_dir = context.project_path / "test" / "audit_targeted"
+                for finding in existing_findings:
+                    if finding.severity in (Severity.CRITICAL, Severity.HIGH):
+                        if finding.locations and finding.locations[0].contract:
+                            try:
+                                generate_targeted_harness(
+                                    finding.locations[0].contract,
+                                    finding,
+                                    context.contract_sources.get(
+                                        finding.locations[0].file, ""
+                                    ),
+                                    test_dir,
+                                )
+                            except Exception as e:
+                                logger.debug(f"Targeted harness failed: {e}")
+            except ImportError:
+                logger.debug("Harness generator not available")
+
+        # Step 2: Run forge and symbolic analysis in parallel
+        tasks = []
         if context.config.foundry_fuzz_enabled:
             try:
                 from ..analyzers.foundry.analyzer import FoundryAnalyzer
@@ -220,44 +248,11 @@ class PipelineOrchestrator:
             except ImportError:
                 logger.debug("Foundry analyzer not available")
 
-            # Generate targeted harnesses for HIGH/CRITICAL findings
-            if existing_findings:
-                try:
-                    from ..analyzers.foundry.harness_generator import generate_targeted_harness
-                    from ..core.models import Severity
-
-                    test_dir = context.project_path / "test" / "audit_targeted"
-                    for finding in existing_findings:
-                        if finding.severity in (Severity.CRITICAL, Severity.HIGH):
-                            if finding.locations and finding.locations[0].contract:
-                                try:
-                                    generate_targeted_harness(
-                                        finding.locations[0].contract,
-                                        finding,
-                                        context.contract_sources.get(
-                                            finding.locations[0].file, ""
-                                        ),
-                                        test_dir,
-                                    )
-                                except Exception as e:
-                                    logger.debug(f"Targeted harness failed: {e}")
-                except ImportError:
-                    logger.debug("Harness generator not available")
-
         if context.config.symbolic_enabled:
             try:
                 from ..analyzers.symbolic.analyzer import SymbolicAnalyzer
                 symbolic = SymbolicAnalyzer()
                 tasks.append(symbolic.analyze(context))
-
-                # Verify existing HIGH/CRITICAL findings with symbolic execution
-                if existing_findings:
-                    for finding in existing_findings:
-                        if finding.severity in (Severity.CRITICAL, Severity.HIGH):
-                            try:
-                                await symbolic.verify_finding(finding, context)
-                            except Exception:
-                                pass
             except ImportError:
                 logger.debug("Symbolic analyzer not available")
 
@@ -268,6 +263,15 @@ class PipelineOrchestrator:
                     findings.extend(r)
                 elif isinstance(r, Exception):
                     logger.warning(f"Dynamic analysis error: {r}")
+
+        # Step 3: Verify existing HIGH/CRITICAL findings AFTER forge has run
+        if symbolic and existing_findings:
+            for finding in existing_findings:
+                if finding.severity in (Severity.CRITICAL, Severity.HIGH):
+                    try:
+                        await symbolic.verify_finding(finding, context)
+                    except Exception as e:
+                        logger.debug(f"Symbolic verify failed for '{finding.title}': {e}")
 
         return findings
 
@@ -300,10 +304,14 @@ class PipelineOrchestrator:
 
     async def _phase_llm_enrich(
         self, findings: list[Finding], context: AuditContext
-    ) -> list[Finding]:
-        """Phase 6: Enrich findings with LLM explanations, remediations, PoCs."""
+    ) -> tuple[list[Finding], str | None]:
+        """Phase 6: Enrich findings with LLM explanations, remediations, PoCs.
+
+        Returns:
+            Tuple of (enriched findings, executive summary text or None)
+        """
         if not self.llm_router:
-            return findings
+            return findings, None
 
         from ..llm.tasks.explain import ExplainTask
         from ..llm.tasks.poc_generate import PoCGenerateTask
@@ -358,20 +366,17 @@ class PipelineOrchestrator:
                     logger.warning(f"LLM enrichment failed for '{finding.title}': {e}")
 
         # Generate executive summary
+        executive_summary: str | None = None
         try:
             from ..llm.tasks.summarize import SummarizeTask
             summarize = SummarizeTask(self.llm_router)
             active = [f for f in findings if not f.suppressed]
-            summary_text = await summarize.run(active)
-            # Store in metadata for report generator
-            for f in findings:
-                f.metadata.setdefault("executive_summary", summary_text)
-                break  # Just tag first finding; report generator retrieves it
+            executive_summary = await summarize.run(active)
         except Exception as e:
             logger.warning(f"Executive summary generation failed: {e}")
 
         logger.info(f"LLM enriched {processed_count} findings")
-        return findings
+        return findings, executive_summary
 
     def _attach_source_snippets(
         self, findings: list[Finding], context: AuditContext
