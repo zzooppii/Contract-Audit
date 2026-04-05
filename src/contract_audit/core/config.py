@@ -116,6 +116,8 @@ def _parse_config(raw: dict[str, Any]) -> FullConfig:
 
     oracle_cfg = detectors_section.get("oracle", {})
     governance_cfg = detectors_section.get("governance", {})
+    merkle_cfg = detectors_section.get("merkle", {})
+    timelock_cfg = detectors_section.get("timelock", {})
     severity_scores = scoring_section.get("severity_scores", {})
 
     audit_cfg = AuditConfig(
@@ -156,6 +158,13 @@ def _parse_config(raw: dict[str, Any]) -> FullConfig:
         ),
         governance_min_quorum_threshold=governance_cfg.get("min_quorum_threshold", 0.04),
         governance_min_timelock_seconds=governance_cfg.get("min_timelock_seconds", 86400),
+        merkle_detector_enabled=merkle_cfg.get("enabled", True)
+        if merkle_cfg
+        else detectors_section.get("merkle", True),
+        timelock_detector_enabled=timelock_cfg.get("enabled", True)
+        if timelock_cfg
+        else detectors_section.get("timelock", True),
+        timelock_min_delay_seconds=timelock_cfg.get("min_delay_seconds", 3600),
         severity_scores=severity_scores
         or {
             "critical": 10.0,
