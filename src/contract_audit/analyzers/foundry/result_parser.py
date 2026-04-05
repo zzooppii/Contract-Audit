@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from ...core.models import (
@@ -63,6 +64,9 @@ def _failure_to_finding(
     if decoded_logs:
         description += "**Logs:**\n```\n" + "\n".join(decoded_logs[:10]) + "\n```\n"
 
+    # Try to extract a more precise source location from the failure output
+    source_file, source_line = _extract_source_location(reason, decoded_logs, test_file)
+
     return Finding(
         title=f"Foundry Test Failure: {test_name}",
         description=description,
@@ -73,9 +77,9 @@ def _failure_to_finding(
         detector_name="foundry-fuzz",
         locations=[
             SourceLocation(
-                file=test_file,
-                start_line=1,
-                end_line=1,
+                file=source_file,
+                start_line=source_line,
+                end_line=source_line,
                 function=test_name,
             )
         ],
@@ -106,6 +110,26 @@ def _classify_failure(test_name: str, reason: str) -> tuple[FindingCategory, Sev
         return FindingCategory.FLASH_LOAN, Severity.HIGH
 
     return FindingCategory.OTHER, Severity.MEDIUM
+
+
+def _extract_source_location(
+    reason: str, decoded_logs: list[str], fallback_file: str
+) -> tuple[str, int]:
+    """Try to extract a real source file and line number from forge output.
+
+    Forge may include source references in the reason string or decoded logs
+    in the form ``path/to/File.sol:42``. Returns (file, line) or the fallback.
+    """
+    _SOL_LINE_RE = re.compile(r'([\w/.\-]+\.sol):(\d+)')
+
+    for text in [reason] + (decoded_logs or []):
+        if not text:
+            continue
+        match = _SOL_LINE_RE.search(text)
+        if match:
+            return match.group(1), int(match.group(2))
+
+    return fallback_file, 1
 
 
 def _format_counterexample(counterexample: Any) -> str:
