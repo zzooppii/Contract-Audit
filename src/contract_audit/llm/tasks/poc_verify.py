@@ -98,8 +98,8 @@ class PoCVerifyTask:
             process = await asyncio.create_subprocess_exec(
                 "forge", "test",
                 "--match-test", test_name,
+                "--match-path", f"**/PoCVerify_{test_name}.t.sol",
                 "--json",
-                "--no-match-path", "!test/PoCVerify_*.t.sol",
                 cwd=str(project_path),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
