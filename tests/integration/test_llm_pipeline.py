@@ -227,7 +227,7 @@ async def test_llm_enrichment_adds_explanation(mock_router, tmp_path):
         locations=[SourceLocation(file="Vault.sol", start_line=12, end_line=16)],
     )
 
-    enriched = await pipeline._phase_llm_enrich([finding], context)
+    enriched, _summary = await pipeline._phase_llm_enrich([finding], context)
 
     assert len(enriched) == 1
     assert enriched[0].llm_explanation is not None
@@ -257,7 +257,7 @@ async def test_llm_enrichment_adds_poc(mock_router, tmp_path):
         locations=[SourceLocation(file="Vault.sol", start_line=12, end_line=16)],
     )
 
-    enriched = await pipeline._phase_llm_enrich([finding], context)
+    enriched, _summary = await pipeline._phase_llm_enrich([finding], context)
 
     assert enriched[0].llm_poc is not None
     assert "Mock PoC" in enriched[0].llm_poc
