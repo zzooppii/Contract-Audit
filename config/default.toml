@@ -11,6 +11,10 @@ aderyn = true
 foundry_fuzz = false          # Opt-in (requires test suite)
 symbolic = false              # Opt-in (requires hevm/mythril)
 
+[analyzers.foundry]
+fuzz_runs = 256               # Number of fuzz iterations per test
+fuzz_seed = "0xDEADBEEF"     # Seed for deterministic fuzzing
+
 [detectors]
 proxy = true
 flash_loan = true
