@@ -181,14 +181,15 @@ class TestFoundryAnalyzerForgeCommand:
     """Test that forge command is assembled with correct fuzz config."""
 
     @pytest.mark.asyncio
-    async def test_fuzz_runs_passed_to_forge_command(self, tmp_path):
-        """Config fuzz_runs and fuzz_seed should appear in the forge command."""
+    async def test_fuzz_runs_passed_via_env_vars(self, tmp_path):
+        """Config fuzz_runs and fuzz_seed should be passed as env vars, not CLI flags."""
         analyzer = FoundryAnalyzer()
         (tmp_path / "foundry.toml").write_text("[profile.default]\n")
         config = AuditConfig(fuzz_runs=512, fuzz_seed="0xCAFEBABE")
         context = AuditContext(project_path=tmp_path, config=config)
 
         captured_cmd: list[str] = []
+        captured_env: dict = {}
 
         async def fake_wait_for(coro, timeout):
             return (b"", b"")
@@ -201,15 +202,18 @@ class TestFoundryAnalyzerForgeCommand:
 
             def capture_exec(*args, **kwargs):
                 captured_cmd.extend(args)
+                captured_env.update(kwargs.get("env", {}))
                 return mock_proc
 
             mock_exec.side_effect = capture_exec
             await analyzer.analyze(context)
 
-        assert "--fuzz-runs" in captured_cmd
-        assert "512" in captured_cmd
-        assert "--fuzz-seed" in captured_cmd
-        assert "0xCAFEBABE" in captured_cmd
+        # Fuzz config must NOT appear as CLI flags
+        assert "--fuzz-runs" not in captured_cmd
+        assert "--fuzz-seed" not in captured_cmd
+        # Fuzz config MUST appear as env vars
+        assert captured_env.get("FOUNDRY_FUZZ_RUNS") == "512"
+        assert captured_env.get("FOUNDRY_FUZZ_SEED") == "0xCAFEBABE"
 
     @pytest.mark.asyncio
     async def test_stderr_error_logged_as_warning(self, tmp_path, caplog):
