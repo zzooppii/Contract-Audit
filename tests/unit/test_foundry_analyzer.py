@@ -175,3 +175,65 @@ class TestHarnessGeneratorParams:
         from contract_audit.analyzers.foundry.harness_generator import _extract_function_params
         result = _extract_function_params("contract Foo {}", "nonexistent")
         assert result == []
+
+
+class TestFoundryAnalyzerForgeCommand:
+    """Test that forge command is assembled with correct fuzz config."""
+
+    @pytest.mark.asyncio
+    async def test_fuzz_runs_passed_to_forge_command(self, tmp_path):
+        """Config fuzz_runs and fuzz_seed should appear in the forge command."""
+        analyzer = FoundryAnalyzer()
+        (tmp_path / "foundry.toml").write_text("[profile.default]\n")
+        config = AuditConfig(fuzz_runs=512, fuzz_seed="0xCAFEBABE")
+        context = AuditContext(project_path=tmp_path, config=config)
+
+        captured_cmd: list[str] = []
+
+        async def fake_wait_for(coro, timeout):
+            return (b"", b"")
+
+        with patch("shutil.which", return_value="/usr/bin/forge"), \
+             patch("asyncio.create_subprocess_exec") as mock_exec, \
+             patch("asyncio.wait_for", side_effect=fake_wait_for):
+            mock_proc = MagicMock()
+            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+
+            def capture_exec(*args, **kwargs):
+                captured_cmd.extend(args)
+                return mock_proc
+
+            mock_exec.side_effect = capture_exec
+            await analyzer.analyze(context)
+
+        assert "--fuzz-runs" in captured_cmd
+        assert "512" in captured_cmd
+        assert "--fuzz-seed" in captured_cmd
+        assert "0xCAFEBABE" in captured_cmd
+
+    @pytest.mark.asyncio
+    async def test_stderr_error_logged_as_warning(self, tmp_path, caplog):
+        """When forge stderr contains 'error', a warning should be logged."""
+        import logging
+
+        analyzer = FoundryAnalyzer()
+        (tmp_path / "foundry.toml").write_text("[profile.default]\n")
+        config = AuditConfig()
+        context = AuditContext(project_path=tmp_path, config=config)
+
+        stderr_msg = b"Error: compilation failed: unknown contract"
+
+        async def fake_wait_for(coro, timeout):
+            return (b"", stderr_msg)
+
+        with patch("shutil.which", return_value="/usr/bin/forge"), \
+             patch("asyncio.create_subprocess_exec") as mock_exec, \
+             patch("asyncio.wait_for", side_effect=fake_wait_for), \
+             caplog.at_level(logging.WARNING, logger="contract_audit.analyzers.foundry.analyzer"):
+            mock_proc = MagicMock()
+            mock_proc.communicate = AsyncMock(return_value=(b"", stderr_msg))
+            mock_exec.return_value = mock_proc
+            await analyzer.analyze(context)
+
+        assert any("stderr" in r.message.lower() or "compilation" in r.message.lower()
+                   for r in caplog.records)
