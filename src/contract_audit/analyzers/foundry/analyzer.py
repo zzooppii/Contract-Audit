@@ -44,14 +44,16 @@ class FoundryAnalyzer:
 
     async def _run_forge(self, context: AuditContext) -> list[Finding]:
         """Execute forge test --json."""
+        fuzz_seed = getattr(context.config, "fuzz_seed", "0xDEADBEEF")
+        fuzz_runs = getattr(context.config, "fuzz_runs", 256)
+
         cmd = [
             FORGE_CMD, "test",
             "--json",
-            "--no-match-test", "testSkip",  # Skip explicitly skipped tests
+            "--no-match-test", "testSkip",
+            "--fuzz-seed", str(fuzz_seed),
+            "--fuzz-runs", str(fuzz_runs),
         ]
-
-        # Add fuzz seed for reproducibility
-        cmd.extend(["--fuzz-seed", "0xDEADBEEF"])
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -65,8 +67,22 @@ class FoundryAnalyzer:
                 proc.communicate(), timeout=600  # 10 minute timeout
             )
 
+            # Log stderr — compilation errors surface here
+            if stderr:
+                stderr_text = stderr.decode(errors="replace")
+                if "error" in stderr_text.lower():
+                    logger.warning(f"Forge stderr:\n{stderr_text[:2000]}")
+                else:
+                    logger.debug(f"Forge stderr: {stderr_text[:500]}")
+
             if not stdout:
-                logger.warning("forge test produced no output")
+                if stderr:
+                    logger.warning(
+                        f"forge produced no output. Stderr:\n"
+                        f"{stderr.decode(errors='replace')[:2000]}"
+                    )
+                else:
+                    logger.warning("forge produced no output")
                 return []
 
             # forge test --json exits non-zero when tests fail (expected)
