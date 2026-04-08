@@ -74,6 +74,8 @@ def audit(
         None, "--compare-to", help="Path to previous audit JSON for comparison"
     ),
     no_llm: bool = typer.Option(False, "--no-llm", help="Disable LLM enrichment"),
+    fuzz: bool = typer.Option(False, "--fuzz", help="Enable Foundry fuzz testing (requires forge)"),
+    symbolic: bool = typer.Option(False, "--symbolic", help="Enable symbolic execution (requires hevm)"),
     ci_mode: bool = typer.Option(False, "--ci-mode", help="CI mode: exit non-zero on findings"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging"),
 ) -> None:
@@ -105,6 +107,10 @@ def audit(
 
         if no_llm:
             audit_config.llm_enabled = False
+        if fuzz:
+            audit_config.foundry_fuzz_enabled = True
+        if symbolic:
+            audit_config.symbolic_enabled = True
 
         if output_dir:
             audit_config.output_dir = output_dir
