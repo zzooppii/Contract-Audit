@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import shutil
 
 from ...core.exceptions import AnalyzerError
@@ -30,17 +31,73 @@ class FoundryAnalyzer:
             logger.warning("forge not installed, skipping Foundry analysis")
             return []
 
-        # Check if foundry project exists
-        foundry_toml = context.project_path / "foundry.toml"
-        if not foundry_toml.exists():
-            logger.info("No foundry.toml found, skipping Foundry analysis")
-            return []
+        await self._ensure_foundry_project(context)
 
         try:
             return await self._run_forge(context)
         except Exception as e:
             logger.error(f"Foundry analysis failed: {e}")
             raise AnalyzerError(self.name, str(e)) from e
+
+    async def _ensure_foundry_project(self, context: AuditContext) -> None:
+        """Create minimal Foundry scaffolding if the project lacks it.
+
+        If ``foundry.toml`` already exists, this is a no-op. Otherwise:
+        - Writes a minimal ``foundry.toml`` with fuzz config from ``context.config``
+        - Creates ``lib/`` directory
+        - Runs ``forge install foundry-rs/forge-std`` (network errors are non-fatal)
+        - Writes ``remappings.txt`` so ``import "forge-std/..."`` resolves
+        """
+        foundry_toml = context.project_path / "foundry.toml"
+        if foundry_toml.exists():
+            return
+
+        logger.info("No foundry.toml found — creating minimal Foundry project scaffold")
+
+        fuzz_runs = getattr(context.config, "fuzz_runs", 256)
+        fuzz_seed = getattr(context.config, "fuzz_seed", "0xDEADBEEF")
+        contracts_dir = str(getattr(context.config, "contracts_dir", "./src")).lstrip("./")
+
+        foundry_toml.write_text(
+            f"[profile.default]\n"
+            f'src = "{contracts_dir}"\n'
+            f'out = "out"\n'
+            f'libs = ["lib"]\n'
+            f"\n"
+            f"[profile.default.fuzz]\n"
+            f"runs = {fuzz_runs}\n"
+            f'seed = "{fuzz_seed}"\n'
+        )
+        logger.info(f"Created {foundry_toml}")
+
+        lib_dir = context.project_path / "lib"
+        lib_dir.mkdir(exist_ok=True)
+
+        # Install forge-std so import "forge-std/Test.sol" resolves
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                FORGE_CMD, "install", "foundry-rs/forge-std",
+                "--no-git", "--no-commit",
+                cwd=str(context.project_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            if proc.returncode != 0:
+                logger.warning(
+                    f"forge install forge-std failed (rc={proc.returncode}). "
+                    f"Stderr: {stderr.decode(errors='replace')[:500]}"
+                )
+            else:
+                logger.info("Installed forge-std into lib/forge-std")
+        except Exception as e:
+            logger.warning(f"forge install forge-std failed: {e} — harnesses may not compile")
+
+        # Write remappings so Solidity can resolve the import
+        remappings = context.project_path / "remappings.txt"
+        if not remappings.exists():
+            remappings.write_text("forge-std/=lib/forge-std/src/\n")
+            logger.info(f"Created {remappings}")
 
     async def _run_forge(self, context: AuditContext) -> list[Finding]:
         """Execute forge test --json."""
@@ -51,9 +108,14 @@ class FoundryAnalyzer:
             FORGE_CMD, "test",
             "--json",
             "--no-match-test", "testSkip",
-            "--fuzz-seed", str(fuzz_seed),
-            "--fuzz-runs", str(fuzz_runs),
         ]
+
+        # Pass fuzz config via env vars — compatible with all Foundry versions
+        env = {
+            **os.environ,
+            "FOUNDRY_FUZZ_RUNS": str(fuzz_runs),
+            "FOUNDRY_FUZZ_SEED": str(fuzz_seed),
+        }
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -61,6 +123,7 @@ class FoundryAnalyzer:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(context.project_path),
+                env=env,
             )
 
             stdout, stderr = await asyncio.wait_for(
