@@ -132,6 +132,8 @@ def _parse_config(raw: dict[str, Any]) -> FullConfig:
         aderyn_enabled=analyzers_section.get("aderyn", True),
         foundry_fuzz_enabled=analyzers_section.get("foundry_fuzz", False),
         symbolic_enabled=analyzers_section.get("symbolic", False),
+        fuzz_runs=analyzers_section.get("foundry", {}).get("fuzz_runs", 256),
+        fuzz_seed=analyzers_section.get("foundry", {}).get("fuzz_seed", "0xDEADBEEF"),
         proxy_detector_enabled=detectors_section.get("proxy", True),
         flash_loan_detector_enabled=detectors_section.get("flash_loan", True),
         oracle_detector_enabled=oracle_cfg.get("enabled", True)
