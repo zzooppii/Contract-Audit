@@ -226,6 +226,9 @@ class PipelineOrchestrator:
                     if finding.severity in (Severity.CRITICAL, Severity.HIGH):
                         if finding.locations and finding.locations[0].contract:
                             try:
+                                ctor_inputs, src_path = self._resolve_contract_info(
+                                    finding.locations[0].contract, context
+                                )
                                 generate_targeted_harness(
                                     finding.locations[0].contract,
                                     finding,
@@ -233,11 +236,62 @@ class PipelineOrchestrator:
                                         finding.locations[0].file, ""
                                     ),
                                     test_dir,
+                                    source_path=src_path,
+                                    constructor_abi=ctor_inputs,
                                 )
                             except Exception as e:
                                 logger.debug(f"Targeted harness failed: {e}")
             except ImportError:
                 logger.debug("Harness generator not available")
+
+        # Step 1b: Generate generic fuzz harnesses for every compiled contract
+        if context.config.foundry_fuzz_enabled and context.compilation_artifacts:
+            try:
+                from ..analyzers.foundry.harness_generator import generate_fuzz_harness
+
+                fuzz_dir = context.project_path / "test" / "audit_fuzz"
+                for _fname, file_contracts in context.compilation_artifacts.get(
+                    "contracts", {}
+                ).items():
+                    for cname, cdata in file_contracts.items():
+                        abi = cdata.get("abi", [])
+                        functions = [e for e in abi if e.get("type") == "function"]
+                        if not functions:
+                            continue
+                        try:
+                            ctor_inputs, src_path = self._resolve_contract_info(cname, context)
+                            generate_fuzz_harness(
+                                cname, functions, fuzz_dir,
+                                source_path=src_path,
+                                constructor_abi=ctor_inputs,
+                            )
+                        except Exception as e:
+                            logger.debug(f"Fuzz harness generation failed for {cname}: {e}")
+            except ImportError:
+                logger.debug("Harness generator not available")
+
+        # Step 1c: Generate invariant tests for every contract source file
+        if context.config.foundry_fuzz_enabled:
+            try:
+                from ..analyzers.foundry.invariant_generator import generate_invariant_tests
+
+                inv_dir = context.project_path / "test" / "audit_invariants"
+                for fname, source in context.contract_sources.items():
+                    basename = fname.rsplit("/", 1)[-1]
+                    if not basename.endswith(".sol"):
+                        continue
+                    cname = basename[:-4]
+                    try:
+                        ctor_inputs, src_path = self._resolve_contract_info(cname, context)
+                        generate_invariant_tests(
+                            cname, source, inv_dir,
+                            source_path=src_path,
+                            constructor_abi=ctor_inputs,
+                        )
+                    except Exception as e:
+                        logger.debug(f"Invariant test generation failed for {cname}: {e}")
+            except ImportError:
+                logger.debug("Invariant generator not available")
 
         # Step 2: Run forge and symbolic analysis in parallel
         tasks = []
@@ -425,6 +479,43 @@ class PipelineOrchestrator:
             if key.endswith(file_path) or file_path.endswith(key):
                 return src
         return ""
+
+    def _resolve_contract_info(
+        self, contract_name: str, context: AuditContext
+    ) -> tuple[list[dict[str, Any]] | None, str | None]:
+        """Resolve constructor ABI inputs and source path for a contract.
+
+        Args:
+            contract_name: Solidity contract name (without ``.sol``)
+            context: Current audit context
+
+        Returns:
+            ``(constructor_inputs, source_path)`` where *constructor_inputs* is
+            the ABI ``inputs`` list (or ``None``), and *source_path* is the
+            relative path within the project (or ``None``).
+        """
+        ctor_inputs: list[dict[str, Any]] | None = None
+        source_path: str | None = None
+
+        # Resolve source path from contract_sources keys
+        for key in context.contract_sources:
+            basename = key.rsplit("/", 1)[-1]  # e.g. "Vault.sol"
+            if basename == f"{contract_name}.sol":
+                source_path = key
+                break
+
+        # Extract constructor ABI from compilation artifacts
+        if context.compilation_artifacts:
+            contracts = context.compilation_artifacts.get("contracts", {})
+            for _fname, file_contracts in contracts.items():
+                if contract_name in file_contracts:
+                    abi: list[dict[str, Any]] = file_contracts[contract_name].get("abi", [])
+                    ctor = next((e for e in abi if e.get("type") == "constructor"), None)
+                    if ctor:
+                        ctor_inputs = ctor.get("inputs", [])
+                    break
+
+        return ctor_inputs, source_path
 
     async def _collect_tool_versions(self) -> dict[str, str]:
         """Collect version information from available tools."""
