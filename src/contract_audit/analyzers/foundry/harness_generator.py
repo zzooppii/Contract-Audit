@@ -126,9 +126,19 @@ def _build_constructor_setup(
             ctor_args.append('""')
         elif type_ in ("bytes",):
             ctor_args.append('""')
+        elif type_.endswith("[]"):
+            # Dynamic array — pass empty array
+            base_type = type_[:-2]
+            ctor_args.append(f"new {base_type}[](0)")
+        elif re.match(r'.+\[\d+\]$', type_):
+            # Fixed-size array — cannot easily initialise inline; emit TODO comment
+            ctor_args.append(f"/* TODO: {type_} */")
+        elif type_.startswith("(") or "tuple" in type_:
+            # Tuple / struct — cannot auto-generate; emit TODO comment
+            ctor_args.append(f"/* TODO: {type_} */")
         else:
-            # Struct, tuple, array, etc. — zero-value fallback
-            ctor_args.append(f"{type_}(0)" if not type_.endswith("]") and not type_.endswith(")") else "")
+            # Unknown scalar — attempt cast-to-zero
+            ctor_args.append(f"{type_}(0)")
 
     # Assemble mock code block (only include each mock once)
     mock_parts: list[str] = []
