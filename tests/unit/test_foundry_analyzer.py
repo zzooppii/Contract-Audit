@@ -40,12 +40,26 @@ class TestFoundryAnalyzerAvailability:
         assert findings == []
 
     @pytest.mark.asyncio
-    async def test_analyze_skips_without_foundry_toml(self, tmp_path):
+    async def test_analyze_creates_foundry_toml_when_missing(self, tmp_path):
+        """When foundry.toml is absent, _ensure_foundry_project creates it and forge runs."""
         analyzer = FoundryAnalyzer()
         context = _make_context(tmp_path, with_foundry_toml=False)
-        with patch("shutil.which", return_value="/usr/bin/forge"):
-            findings = await analyzer.analyze(context)
-        assert findings == []
+
+        async def fake_wait_for(coro, timeout):
+            return (b"", b"")
+
+        with patch("shutil.which", return_value="/usr/bin/forge"), \
+             patch("asyncio.create_subprocess_exec") as mock_exec, \
+             patch("asyncio.wait_for", side_effect=fake_wait_for):
+            mock_proc = MagicMock()
+            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+            mock_proc.returncode = 0
+            mock_exec.return_value = mock_proc
+            await analyzer.analyze(context)
+
+        assert (tmp_path / "foundry.toml").exists()
+        content = (tmp_path / "foundry.toml").read_text()
+        assert "forge-std" not in content or "fuzz" in content  # has fuzz config
 
 
 class TestFoundryAnalyzerRun:
@@ -175,6 +189,71 @@ class TestHarnessGeneratorParams:
         from contract_audit.analyzers.foundry.harness_generator import _extract_function_params
         result = _extract_function_params("contract Foo {}", "nonexistent")
         assert result == []
+
+
+class TestEnsureFoundryProject:
+    @pytest.mark.asyncio
+    async def test_noop_when_foundry_toml_exists(self, tmp_path):
+        """_ensure_foundry_project must not touch existing foundry.toml."""
+        existing = "[profile.default]\nsrc = \"contracts\"\n"
+        (tmp_path / "foundry.toml").write_text(existing)
+        analyzer = FoundryAnalyzer()
+        config = AuditConfig()
+        context = AuditContext(project_path=tmp_path, config=config)
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            await analyzer._ensure_foundry_project(context)
+
+        # foundry.toml must be unchanged
+        assert (tmp_path / "foundry.toml").read_text() == existing
+        # forge install must NOT have been called
+        mock_exec.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_creates_toml_with_fuzz_config(self, tmp_path):
+        """_ensure_foundry_project should write fuzz config from AuditConfig."""
+        analyzer = FoundryAnalyzer()
+        config = AuditConfig(fuzz_runs=1024, fuzz_seed="0xABCD")
+        context = AuditContext(project_path=tmp_path, config=config)
+
+        async def fake_wait_for(coro, timeout):
+            return (b"", b"")
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec, \
+             patch("asyncio.wait_for", side_effect=fake_wait_for):
+            mock_proc = MagicMock()
+            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+            mock_proc.returncode = 0
+            mock_exec.return_value = mock_proc
+            await analyzer._ensure_foundry_project(context)
+
+        toml_content = (tmp_path / "foundry.toml").read_text()
+        assert "runs = 1024" in toml_content
+        assert "0xABCD" in toml_content
+        assert (tmp_path / "lib").is_dir()
+        assert (tmp_path / "remappings.txt").exists()
+        assert "forge-std/" in (tmp_path / "remappings.txt").read_text()
+
+    @pytest.mark.asyncio
+    async def test_forge_install_failure_is_non_fatal(self, tmp_path):
+        """Network failure during forge install should not raise an exception."""
+        analyzer = FoundryAnalyzer()
+        config = AuditConfig()
+        context = AuditContext(project_path=tmp_path, config=config)
+
+        async def fake_wait_for(coro, timeout):
+            return (b"", b"error: network unreachable")
+
+        with patch("asyncio.create_subprocess_exec") as mock_exec, \
+             patch("asyncio.wait_for", side_effect=fake_wait_for):
+            mock_proc = MagicMock()
+            mock_proc.communicate = AsyncMock(return_value=(b"", b"error: network"))
+            mock_proc.returncode = 1
+            mock_exec.return_value = mock_proc
+            # Must not raise
+            await analyzer._ensure_foundry_project(context)
+
+        assert (tmp_path / "foundry.toml").exists()
 
 
 class TestFoundryAnalyzerForgeCommand:
