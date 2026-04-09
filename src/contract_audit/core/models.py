@@ -183,6 +183,8 @@ class AuditConfig(BaseModel):
     aderyn_enabled: bool = True
     foundry_fuzz_enabled: bool = False
     symbolic_enabled: bool = False
+    fuzz_runs: int = 256
+    fuzz_seed: str = "0xDEADBEEF"
 
     # Detector flags
     proxy_detector_enabled: bool = True
