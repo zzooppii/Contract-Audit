@@ -239,6 +239,82 @@ class TestDynamicPhaseGracefulFallback:
         assert not targeted_dir.exists() or not list(targeted_dir.glob("*.t.sol"))
 
 
+class TestFuzzAndInvariantHarnessGeneration:
+    """Verify Step 1b/1c generate fuzz + invariant harnesses for all contracts."""
+
+    @pytest.mark.asyncio
+    async def test_fuzz_harnesses_generated_for_all_contracts(self, tmp_path):
+        """audit_fuzz/ should contain .t.sol files for each compiled contract."""
+        (tmp_path / "foundry.toml").write_text("[profile.default]\n")
+
+        pipeline = _make_pipeline()
+        config = AuditConfig(foundry_fuzz_enabled=True, llm_enabled=False)
+        context = AuditContext(project_path=tmp_path, config=config)
+
+        # Simulate compilation output with one contract
+        context.compilation_artifacts = {
+            "contracts": {
+                "src/Token.sol": {
+                    "Token": {
+                        "abi": [
+                            {"type": "function", "name": "transfer",
+                             "inputs": [{"type": "address", "name": "to"},
+                                        {"type": "uint256", "name": "amount"}],
+                             "stateMutability": "nonpayable"},
+                        ]
+                    }
+                }
+            }
+        }
+
+        with patch(
+            "contract_audit.analyzers.foundry.analyzer.FoundryAnalyzer.is_available",
+            return_value=True,
+        ), patch(
+            "contract_audit.analyzers.foundry.analyzer.FoundryAnalyzer.analyze",
+            new=AsyncMock(return_value=[]),
+        ):
+            await pipeline._phase_dynamic(context)
+
+        fuzz_dir = tmp_path / "test" / "audit_fuzz"
+        assert fuzz_dir.exists()
+        sol_files = list(fuzz_dir.glob("*.t.sol"))
+        assert len(sol_files) >= 1
+        assert any("Token" in f.name for f in sol_files)
+
+    @pytest.mark.asyncio
+    async def test_invariant_tests_generated_for_all_contracts(self, tmp_path):
+        """audit_invariants/ should contain .t.sol files for each source file."""
+        (tmp_path / "foundry.toml").write_text("[profile.default]\n")
+
+        pipeline = _make_pipeline()
+        config = AuditConfig(foundry_fuzz_enabled=True, llm_enabled=False)
+        context = AuditContext(project_path=tmp_path, config=config)
+
+        # Simulate source files
+        context.contract_sources = {
+            "src/Vault.sol": (
+                "contract Vault { uint256 public totalAssets; "
+                "function totalSupply() public view returns (uint256) {} }"
+            )
+        }
+
+        with patch(
+            "contract_audit.analyzers.foundry.analyzer.FoundryAnalyzer.is_available",
+            return_value=True,
+        ), patch(
+            "contract_audit.analyzers.foundry.analyzer.FoundryAnalyzer.analyze",
+            new=AsyncMock(return_value=[]),
+        ):
+            await pipeline._phase_dynamic(context)
+
+        inv_dir = tmp_path / "test" / "audit_invariants"
+        assert inv_dir.exists()
+        sol_files = list(inv_dir.glob("*.t.sol"))
+        assert len(sol_files) >= 1
+        assert any("Vault" in f.name for f in sol_files)
+
+
 class TestGeneratedHarnessContent:
     """Verify quality improvements from Phase 2."""
 
