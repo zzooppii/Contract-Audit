@@ -27,6 +27,12 @@ contract-audit audit ./src --config audit.toml
 # Run without LLM (static analysis only), verbose output
 contract-audit audit ./src --no-llm -v
 
+# Enable dynamic analysis (Foundry fuzz + invariant tests)
+contract-audit audit ./src --fuzz
+
+# Enable symbolic execution (requires hevm)
+contract-audit audit ./src --fuzz --symbolic
+
 # Generate reports in multiple formats (sarif, json, markdown, html, pdf)
 contract-audit audit ./src --no-llm --formats sarif,json,markdown
 
@@ -47,6 +53,8 @@ contract-audit login --google
 |--------|-------------|
 | `--config`, `-c` | Path to audit config file (TOML) |
 | `--no-llm` | Skip LLM analysis (static analysis only) |
+| `--fuzz` | Enable Foundry fuzz testing + invariant tests (auto-scaffolds Foundry if needed) |
+| `--symbolic` | Enable symbolic execution via hevm/Mythril |
 | `--verbose`, `-v` | Enable verbose logging (DEBUG level) |
 | `--formats`, `-f` | Comma-separated report formats: `sarif`, `json`, `markdown`, `html`, `pdf` |
 | `--output-dir` | Output directory for generated reports |
@@ -61,15 +69,41 @@ contract-audit login --google
 
 ```
 Pipeline Phases:
-  1. Source Loading     → Load .sol files
+  1. Source Loading     → Load .sol files, compile with solc (ABI + AST + storage layout)
   2. Static Analysis    → Slither + Aderyn + AST parser + Cross-contract analysis
   3. Detection          → 22 specialized detectors
   3.5 LLM Audit        → Business logic vulnerability detection via LLM
-  4. Dynamic Analysis   → Foundry fuzz + invariant tests + symbolic execution
+  4. Dynamic Analysis   → Foundry fuzz + invariant tests + symbolic execution (opt-in: --fuzz)
   5. Scoring            → Risk scoring with configurable weights
   5.5 FP Reduction      → Heuristic + LLM triage false positive filtering
   6. LLM Enrichment     → Explanations, remediations, PoC generation
   7. Reporting          → SARIF, JSON, Markdown, HTML, PDF
+```
+
+## Dynamic Analysis
+
+When `--fuzz` is passed, the engine performs full dynamic analysis:
+
+1. **Auto-scaffolding**: If the project has no `foundry.toml`, one is created automatically along with `remappings.txt` and `lib/forge-std/` (installed via `forge install`).
+2. **Targeted harnesses** (`test/audit_targeted/`): For each CRITICAL/HIGH finding, a Solidity fuzz test is generated matching the finding's category:
+   - *Reentrancy*: Real attacker contract with `receive()` / `fallback()` re-entry
+   - *Arithmetic*: Boundary-value tests (0, 1, `type(uint256).max`) + fuzz
+   - *Access control*: Unauthorized caller rejection tests
+3. **Generic fuzz harnesses** (`test/audit_fuzz/`): One `FuzzContract.t.sol` per compiled contract, fuzzing all non-view functions.
+4. **Invariant tests** (`test/audit_invariants/`): Auto-detected from source patterns (ERC20 supply, vault assets, ownership, pausable state, ETH balance).
+5. **Constructor handling**: ABI-driven mock generation — `address _token` → `MockERC20`, `address _oracle` → `MockOracle`, arrays → `new T[](0)`.
+6. **forge execution**: `forge test --json` with `FOUNDRY_FUZZ_RUNS` / `FOUNDRY_FUZZ_SEED` env vars.
+7. **Cleanup**: All generated test directories and scaffold files are deleted after forge runs.
+
+```bash
+# Works on any Solidity project — Foundry not required beforehand
+contract-audit audit ./src --fuzz
+
+# Configurable fuzz parameters
+# config/default.toml:
+# [analyzers.foundry]
+# fuzz_runs = 1000
+# fuzz_seed = "0xDEADBEEF"
 ```
 
 ## Configuration
@@ -184,7 +218,7 @@ contract-audit login --google
 # Install in dev mode
 python3.11 -m pip install -e ".[dev]"
 
-# Run tests (428 tests)
+# Run tests (497 tests)
 python3.11 -m pytest tests/ -v
 
 # Lint
@@ -204,12 +238,13 @@ contract-audit audit ~/my-defi-project/src --config ~/configs/audit.toml
 
 ## Test Suite
 
+**497 tests** — all passing.
+
 | Category | Tests | Description |
 |----------|-------|-------------|
-| Unit | ~300 | Detector logic, utils, scoring, config |
-| Edge Cases | 264 | 22 detectors x 12 edge case inputs |
-| Integration | ~20 | LLM pipeline with mock router, detector integration |
-| E2E | ~25 | Full pipeline against 23 example contracts |
+| Unit | 398 | Detector logic, utils, scoring, config, harness generators, foundry analyzer, result parser |
+| Integration | 71 | LLM pipeline, dynamic phase ordering, fuzz/invariant harness generation, cleanup |
+| E2E | 28 | Full pipeline against 23 example contracts |
 
 ## License
 
