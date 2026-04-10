@@ -159,7 +159,7 @@ def generate_invariant_tests(
     setup_extra_section = ("\n" + "\n".join(setup_extra_lines)) if setup_extra_lines else ""
     test_bodies = "\n".join(t["test"] for t in applicable_tests)
 
-    import_path = f"../{source_path}" if source_path else f"../src/{contract_name}.sol"
+    import_path = source_path if source_path else f"src/{contract_name}.sol"
     mock_code, setup_body = _build_constructor_setup(contract_name, constructor_abi)
     mock_section = f"\n{mock_code}\n" if mock_code else ""
 
