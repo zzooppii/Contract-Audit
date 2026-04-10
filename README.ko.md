@@ -27,6 +27,12 @@ contract-audit audit ./src --config audit.toml
 # LLM 없이 실행 (정적 분석만)
 contract-audit audit ./src --no-llm -v
 
+# 동적 분석 활성화 (Foundry 퍼즈 + 불변량 테스트 — Foundry 없어도 자동 설치)
+contract-audit audit ./src --fuzz
+
+# 심볼릭 실행 추가 (hevm 필요)
+contract-audit audit ./src --fuzz --symbolic
+
 # 이전 감사와 비교
 contract-audit audit ./src --compare-to previous-report.json
 
@@ -37,6 +43,24 @@ contract-audit init
 contract-audit login --anthropic
 contract-audit login --google
 ```
+
+### CLI 옵션
+
+| 옵션 | 설명 |
+|------|------|
+| `--config`, `-c` | 감사 설정 파일 경로 (TOML) |
+| `--no-llm` | LLM 분석 건너뜀 (정적 분석만) |
+| `--fuzz` | Foundry 퍼즈 테스팅 + 불변량 테스트 활성화 (Foundry 없어도 자동 설치) |
+| `--symbolic` | hevm/Mythril 심볼릭 실행 활성화 |
+| `--verbose`, `-v` | 상세 로깅 (DEBUG 레벨) |
+| `--formats`, `-f` | 쉼표 구분 보고서 포맷: `sarif`, `json`, `markdown`, `html`, `pdf` |
+| `--output-dir` | 생성된 보고서 출력 디렉토리 |
+| `--output-sarif` | SARIF 보고서 출력 경로 |
+| `--output-json` | JSON 보고서 출력 경로 |
+| `--output-markdown` | Markdown 보고서 출력 경로 |
+| `--compare-to` | diff 비교용 이전 보고서 경로 |
+| `--severity-filter` | 쉼표 구분 심각도 필터 (예: `high,critical`) |
+| `--ci-mode` | CI 모드: 발견 시 비정상 종료 |
 
 ## 아키텍처
 
@@ -51,6 +75,32 @@ contract-audit login --google
   5.5 오탐 감소      → 휴리스틱 + LLM 트리아지 오탐 필터링
   6. LLM 강화        → 설명, 수정 방안, PoC 생성
   7. 보고서 생성      → SARIF, JSON, Markdown, HTML, PDF
+```
+
+## 동적 분석
+
+`--fuzz` 플래그를 사용하면 전체 동적 분석이 수행됩니다:
+
+1. **자동 스캐폴딩**: 프로젝트에 `foundry.toml`이 없으면 자동 생성 (`remappings.txt` + `lib/forge-std/` 포함, `forge install`로 설치).
+2. **타겟 하네스** (`test/audit_targeted/`): CRITICAL/HIGH 취약점마다 카테고리별 Solidity 퍼즈 테스트 생성:
+   - *재진입*: `receive()` / `fallback()` 재진입 실제 공격자 컨트랙트
+   - *산술*: 경계값 테스트 (0, 1, `type(uint256).max`) + 퍼즈
+   - *접근 제어*: 미인가 호출자 거부 테스트
+3. **제네릭 퍼즈 하네스** (`test/audit_fuzz/`): 컴파일된 컨트랙트마다 `FuzzContract.t.sol` 생성, 모든 non-view 함수 퍼즈.
+4. **불변량 테스트** (`test/audit_invariants/`): 소스 패턴 자동 탐지 (ERC20 supply, vault assets, ownership, pausable 상태, ETH 잔액).
+5. **생성자 처리**: ABI 기반 mock 생성 — `address _token` → `MockERC20`, `address _oracle` → `MockOracle`, 배열 → `new T[](0)`.
+6. **forge 실행**: `forge test --json` (퍼즈 파라미터는 `FOUNDRY_FUZZ_RUNS` / `FOUNDRY_FUZZ_SEED` 환경 변수로 전달).
+7. **정리**: 실행 후 생성된 테스트 디렉토리 및 스캐폴드 파일 자동 삭제.
+
+```bash
+# 어떤 Solidity 프로젝트에서도 동작 — Foundry 사전 설치 불필요
+contract-audit audit ./src --fuzz
+
+# 퍼즈 파라미터 설정
+# config/default.toml:
+# [analyzers.foundry]
+# fuzz_runs = 1000
+# fuzz_seed = "0xDEADBEEF"
 ```
 
 ## 설정
@@ -175,7 +225,7 @@ contract-audit login --google
 # 개발 모드 설치
 python3.11 -m pip install -e ".[dev]"
 
-# 테스트 실행 (428개)
+# 테스트 실행 (497개)
 python3.11 -m pytest tests/ -v
 
 # 린트
@@ -195,12 +245,13 @@ contract-audit audit ~/my-defi-project/src --config ~/configs/audit.toml
 
 ## 테스트 구성
 
+**497개 테스트** — 전체 통과.
+
 | 카테고리 | 테스트 수 | 설명 |
 |----------|-----------|------|
-| 단위 | ~300 | 디텍터 로직, 유틸리티, 스코어링, 설정 |
-| 엣지 케이스 | 264 | 22개 디텍터 x 12개 엣지 케이스 입력 |
-| 통합 | ~20 | 모의 라우터 기반 LLM 파이프라인, 디텍터 통합 |
-| E2E | ~25 | 23개 예제 컨트랙트 대상 전체 파이프라인 |
+| 단위 | 398 | 디텍터 로직, 유틸리티, 스코어링, 설정, 하네스 생성기, Foundry 분석기, 결과 파서 |
+| 통합 | 71 | LLM 파이프라인, 동적 단계 순서, 퍼즈/불변량 하네스 생성, 정리 |
+| E2E | 28 | 23개 예제 컨트랙트 대상 전체 파이프라인 |
 
 ## 라이선스
 
