@@ -185,7 +185,7 @@ def generate_fuzz_harness(
     output_dir.mkdir(parents=True, exist_ok=True)
     test_file = output_dir / f"Fuzz{contract_name}.t.sol"
 
-    import_path = f"../{source_path}" if source_path else f"../src/{contract_name}.sol"
+    import_path = source_path if source_path else f"src/{contract_name}.sol"
     mock_code, setup_body = _build_constructor_setup(contract_name, constructor_abi)
 
     function_tests = []
@@ -329,7 +329,7 @@ def generate_targeted_harness(
         func_name = finding.locations[0].function or ""
 
     safe_fn = re.sub(r'[^a-zA-Z0-9_]', '_', func_name) if func_name else "unknown"
-    import_path = f"../{source_path}" if source_path else f"../src/{contract_name}.sol"
+    import_path = source_path if source_path else f"src/{contract_name}.sol"
 
     # Extract function parameters from source for argument generation
     params = _extract_function_params(source, func_name) if func_name else []
