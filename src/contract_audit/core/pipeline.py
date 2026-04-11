@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from typing import TYPE_CHECKING, Any
 
 from .models import AuditContext, AuditMetadata, AuditResult, AuditSummary, Finding, Severity
@@ -295,10 +296,12 @@ class PipelineOrchestrator:
 
         # Step 2: Run forge and symbolic analysis in parallel
         tasks = []
+        forge_analyzer = None
         if context.config.foundry_fuzz_enabled:
             try:
                 from ..analyzers.foundry.analyzer import FoundryAnalyzer
-                tasks.append(FoundryAnalyzer().analyze(context))
+                forge_analyzer = FoundryAnalyzer()
+                tasks.append(forge_analyzer.analyze(context))
             except ImportError:
                 logger.debug("Foundry analyzer not available")
 
@@ -326,6 +329,20 @@ class PipelineOrchestrator:
                         await symbolic.verify_finding(finding, context)
                     except Exception as e:
                         logger.debug(f"Symbolic verify failed for '{finding.title}': {e}")
+
+        # Step 4: Clean up generated harness directories and scaffold files
+        for dirname in ("audit_targeted", "audit_fuzz", "audit_invariants"):
+            audit_dir = context.project_path / "test" / dirname
+            if audit_dir.exists():
+                try:
+                    shutil.rmtree(audit_dir)
+                    logger.debug(f"Cleaned up {audit_dir}")
+                except Exception as e:
+                    logger.debug(f"Cleanup failed for {audit_dir}: {e}")
+
+        # Clean up any scaffold files created by _ensure_foundry_project
+        if forge_analyzer is not None:
+            forge_analyzer.cleanup_scaffold()
 
         return findings
 
@@ -416,7 +433,7 @@ class PipelineOrchestrator:
                     error_str = str(e)
                     if "budget" in error_str.lower() or "exhausted" in error_str.lower():
                         logger.warning("LLM budget exhausted, stopping enrichment")
-                        return findings
+                        return findings, None
                     logger.warning(f"LLM enrichment failed for '{finding.title}': {e}")
 
         # Generate executive summary
