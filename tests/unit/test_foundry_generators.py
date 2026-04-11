@@ -188,7 +188,7 @@ contract Token {
         )
 
         content = result.read_text()
-        assert 'import "../src/vaults/Vault.sol"' in content
+        assert 'import "src/vaults/Vault.sol"' in content
 
     def test_invariant_with_constructor_abi(self, tmp_path):
         from contract_audit.analyzers.foundry.invariant_generator import generate_invariant_tests
@@ -267,7 +267,7 @@ class TestHarnessWithConstructorArgs:
             "Vault", [], tmp_path, source_path="src/vaults/Vault.sol"
         )
         content = result.read_text()
-        assert 'import "../src/vaults/Vault.sol"' in content
+        assert 'import "src/vaults/Vault.sol"' in content
 
     def test_dynamic_array_constructor_arg(self, tmp_path):
         from contract_audit.analyzers.foundry.harness_generator import generate_fuzz_harness
@@ -317,6 +317,6 @@ class TestHarnessWithConstructorArgs:
             constructor_abi=ctor_abi,
         )
         content = result.read_text()
-        assert 'import "../src/Vault.sol"' in content
+        assert 'import "src/Vault.sol"' in content
         assert "MockERC20" in content
         assert "address(mockToken0)" in content
