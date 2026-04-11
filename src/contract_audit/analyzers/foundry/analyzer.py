@@ -22,8 +22,25 @@ class FoundryAnalyzer:
 
     name = "foundry"
 
+    def __init__(self) -> None:
+        # Files/dirs created by _ensure_foundry_project (cleaned up after forge runs)
+        self._scaffold_paths: list = []
+
     def is_available(self) -> bool:
         return shutil.which(FORGE_CMD) is not None
+
+    def cleanup_scaffold(self) -> None:
+        """Remove any files/dirs created by _ensure_foundry_project."""
+        import shutil as _shutil
+        for path in self._scaffold_paths:
+            try:
+                if path.is_dir():
+                    _shutil.rmtree(path)
+                elif path.exists():
+                    path.unlink()
+            except Exception as e:
+                logger.debug(f"Scaffold cleanup failed for {path}: {e}")
+        self._scaffold_paths.clear()
 
     async def analyze(self, context: AuditContext) -> list[Finding]:
         """Run forge test and return failing test findings."""
@@ -68,10 +85,12 @@ class FoundryAnalyzer:
             f"runs = {fuzz_runs}\n"
             f'seed = "{fuzz_seed}"\n'
         )
+        self._scaffold_paths.append(foundry_toml)
         logger.info(f"Created {foundry_toml}")
 
         lib_dir = context.project_path / "lib"
         lib_dir.mkdir(exist_ok=True)
+        self._scaffold_paths.append(lib_dir)
 
         # Install forge-std so import "forge-std/Test.sol" resolves
         try:
@@ -82,7 +101,13 @@ class FoundryAnalyzer:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                logger.warning("forge install timed out — harnesses may not compile")
+                return
             if proc.returncode != 0:
                 logger.warning(
                     f"forge install forge-std failed (rc={proc.returncode}). "
@@ -97,6 +122,7 @@ class FoundryAnalyzer:
         remappings = context.project_path / "remappings.txt"
         if not remappings.exists():
             remappings.write_text("forge-std/=lib/forge-std/src/\n")
+            self._scaffold_paths.append(remappings)
             logger.info(f"Created {remappings}")
 
     async def _run_forge(self, context: AuditContext) -> list[Finding]:
@@ -126,9 +152,15 @@ class FoundryAnalyzer:
                 env=env,
             )
 
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=600  # 10 minute timeout
-            )
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(), timeout=600  # 10 minute timeout
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                logger.error("Foundry tests timed out after 10 minutes")
+                return []
 
             # Log stderr — compilation errors surface here
             if stderr:
@@ -159,6 +191,5 @@ class FoundryAnalyzer:
             logger.info(f"Foundry: {len(findings)} failing tests")
             return findings
 
-        except TimeoutError:
-            logger.error("Foundry tests timed out after 10 minutes")
-            return []
+        except Exception as e:
+            raise AnalyzerError(self.name, str(e)) from e
