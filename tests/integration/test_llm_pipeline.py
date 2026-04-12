@@ -369,3 +369,42 @@ async def test_llm_budget_tracking(mock_router, tmp_path):
     summary = mock_router.get_budget_summary()
     assert summary["spent_usd"] > 0
     assert summary["remaining_usd"] < summary["max_usd"]
+
+
+@pytest.mark.asyncio
+async def test_llm_enrich_budget_exhausted_returns_tuple(tmp_path):
+    """When LLM budget is exhausted mid-enrichment, _phase_llm_enrich must
+    return a (findings, None) tuple, not a bare list — otherwise the caller
+    raises ValueError when unpacking."""
+    from unittest.mock import AsyncMock, patch
+
+    pipeline = PipelineOrchestrator(
+        analyzers=[],
+        detectors=[],
+        llm_router=MockLLMRouter(),
+    )
+    context = _make_context(tmp_path)
+
+    finding = Finding(
+        title="Test finding",
+        description="desc",
+        severity=Severity.CRITICAL,
+        confidence=Confidence.HIGH,
+        category=FindingCategory.REENTRANCY,
+        source="test",
+        detector_name="test",
+        locations=[SourceLocation(file="Vault.sol", start_line=1, end_line=1)],
+    )
+
+    with patch(
+        "contract_audit.llm.tasks.explain.ExplainTask.run",
+        new=AsyncMock(side_effect=Exception("budget exhausted")),
+    ):
+        result = await pipeline._phase_llm_enrich([finding], context)
+
+    # Must be a tuple, not a list — unpacking `all_findings, summary = result` must work
+    assert isinstance(result, tuple), "Must return tuple, not bare list"
+    assert len(result) == 2
+    findings_out, summary_out = result
+    assert isinstance(findings_out, list)
+    assert summary_out is None
