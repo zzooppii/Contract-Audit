@@ -244,14 +244,13 @@ class TestFuzzAndInvariantHarnessGeneration:
 
     @pytest.mark.asyncio
     async def test_fuzz_harnesses_generated_for_all_contracts(self, tmp_path):
-        """audit_fuzz/ should contain .t.sol files for each compiled contract."""
+        """audit_fuzz/ should contain .t.sol files when forge executes (before cleanup)."""
         (tmp_path / "foundry.toml").write_text("[profile.default]\n")
 
         pipeline = _make_pipeline()
         config = AuditConfig(foundry_fuzz_enabled=True, llm_enabled=False)
         context = AuditContext(project_path=tmp_path, config=config)
 
-        # Simulate compilation output with one contract
         context.compilation_artifacts = {
             "contracts": {
                 "src/Token.sol": {
@@ -267,31 +266,40 @@ class TestFuzzAndInvariantHarnessGeneration:
             }
         }
 
+        files_at_forge_time: list[list[Path]] = []
+
+        async def capture_and_return(ctx):
+            fuzz_dir = ctx.project_path / "test" / "audit_fuzz"
+            files_at_forge_time.append(
+                list(fuzz_dir.glob("*.t.sol")) if fuzz_dir.exists() else []
+            )
+            return []
+
         with patch(
             "contract_audit.analyzers.foundry.analyzer.FoundryAnalyzer.is_available",
             return_value=True,
         ), patch(
             "contract_audit.analyzers.foundry.analyzer.FoundryAnalyzer.analyze",
-            new=AsyncMock(return_value=[]),
+            side_effect=capture_and_return,
         ):
             await pipeline._phase_dynamic(context)
 
-        fuzz_dir = tmp_path / "test" / "audit_fuzz"
-        assert fuzz_dir.exists()
-        sol_files = list(fuzz_dir.glob("*.t.sol"))
-        assert len(sol_files) >= 1
-        assert any("Token" in f.name for f in sol_files)
+        # Files must exist during forge execution (before cleanup)
+        assert len(files_at_forge_time) == 1
+        assert len(files_at_forge_time[0]) >= 1
+        assert any("Token" in f.name for f in files_at_forge_time[0])
+        # Directories are cleaned up after forge runs
+        assert not (tmp_path / "test" / "audit_fuzz").exists()
 
     @pytest.mark.asyncio
     async def test_invariant_tests_generated_for_all_contracts(self, tmp_path):
-        """audit_invariants/ should contain .t.sol files for each source file."""
+        """audit_invariants/ should contain .t.sol files when forge executes (before cleanup)."""
         (tmp_path / "foundry.toml").write_text("[profile.default]\n")
 
         pipeline = _make_pipeline()
         config = AuditConfig(foundry_fuzz_enabled=True, llm_enabled=False)
         context = AuditContext(project_path=tmp_path, config=config)
 
-        # Simulate source files
         context.contract_sources = {
             "src/Vault.sol": (
                 "contract Vault { uint256 public totalAssets; "
@@ -299,6 +307,40 @@ class TestFuzzAndInvariantHarnessGeneration:
             )
         }
 
+        files_at_forge_time: list[list[Path]] = []
+
+        async def capture_and_return(ctx):
+            inv_dir = ctx.project_path / "test" / "audit_invariants"
+            files_at_forge_time.append(
+                list(inv_dir.glob("*.t.sol")) if inv_dir.exists() else []
+            )
+            return []
+
+        with patch(
+            "contract_audit.analyzers.foundry.analyzer.FoundryAnalyzer.is_available",
+            return_value=True,
+        ), patch(
+            "contract_audit.analyzers.foundry.analyzer.FoundryAnalyzer.analyze",
+            side_effect=capture_and_return,
+        ):
+            await pipeline._phase_dynamic(context)
+
+        assert len(files_at_forge_time) == 1
+        assert len(files_at_forge_time[0]) >= 1
+        assert any("Vault" in f.name for f in files_at_forge_time[0])
+        # Directories are cleaned up after forge runs
+        assert not (tmp_path / "test" / "audit_invariants").exists()
+
+    @pytest.mark.asyncio
+    async def test_harness_dirs_cleaned_up_after_phase(self, tmp_path):
+        """All audit_* test directories must be removed after _phase_dynamic completes."""
+        (tmp_path / "foundry.toml").write_text("[profile.default]\n")
+
+        pipeline = _make_pipeline()
+        config = AuditConfig(foundry_fuzz_enabled=True, llm_enabled=False)
+        context = AuditContext(project_path=tmp_path, config=config)
+        context.contract_sources = {"src/Token.sol": "contract Token {}"}
+
         with patch(
             "contract_audit.analyzers.foundry.analyzer.FoundryAnalyzer.is_available",
             return_value=True,
@@ -308,11 +350,9 @@ class TestFuzzAndInvariantHarnessGeneration:
         ):
             await pipeline._phase_dynamic(context)
 
-        inv_dir = tmp_path / "test" / "audit_invariants"
-        assert inv_dir.exists()
-        sol_files = list(inv_dir.glob("*.t.sol"))
-        assert len(sol_files) >= 1
-        assert any("Vault" in f.name for f in sol_files)
+        for dirname in ("audit_targeted", "audit_fuzz", "audit_invariants"):
+            assert not (tmp_path / "test" / dirname).exists(), \
+                f"test/{dirname} should be cleaned up after dynamic phase"
 
 
 class TestGeneratedHarnessContent:
