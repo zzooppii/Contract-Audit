@@ -50,6 +50,9 @@ dev = [
 symbolic = [
     "mythril>=0.24.0",
 ]
+pdf = [
+    "weasyprint>=60.0",
+]
 
 [project.scripts]
 contract-audit = "contract_audit.cli.main:app"
