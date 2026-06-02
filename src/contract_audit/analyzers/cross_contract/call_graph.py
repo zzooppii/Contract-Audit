@@ -32,6 +32,7 @@ class CallGraph:
 
         # Collect all known contract names and their state variables
         contract_types: dict[str, dict[str, str]] = {}  # contract -> {var: type}
+        all_contracts = set(inheritance.keys())
 
         for filename, source in sources.items():
             clean = _strip_comments(source)
@@ -43,7 +44,7 @@ class CallGraph:
                 contract_types[contract_name] = var_types
 
                 # Find external calls
-                calls = self._extract_external_calls(body, var_types)
+                calls = self._extract_external_calls(body, var_types, all_contracts)
                 call_graph[contract_name] = calls
 
         return call_graph
@@ -95,12 +96,37 @@ class CallGraph:
         return var_types
 
     def _extract_external_calls(
-        self, body: str, var_types: dict[str, str]
+        self, body: str, var_types: dict[str, str], all_contracts: set[str]
     ) -> list[tuple[str, str]]:
         """Extract external calls to other contracts."""
         calls: list[tuple[str, str]] = []
+        local_var_types = var_types.copy()
 
-        # Match: variable.functionName(
+        # 1. Track local variable typed assignments: e.g. "IToken t = IToken(addr);" or "IToken t;"
+        local_decl_pattern = re.compile(
+            r'\b(\w+)\s+(?:memory\s+|storage\s+|calldata\s+)?(\w+)\s*(?:=|;)'
+        )
+        for match in local_decl_pattern.finditer(body):
+            type_name = match.group(1)
+            var_name = match.group(2)
+            if type_name in all_contracts or type_name.startswith('I'):
+                local_var_types[var_name] = type_name
+
+        # 2. Match direct interface casting: e.g. "IToken(addr).transfer("
+        cast_pattern = re.compile(r'\b(\w+)\s*\([^)]*\)\s*\.\s*(\w+)\s*\(')
+        for match in cast_pattern.finditer(body):
+            type_name = match.group(1)
+            func_name = match.group(2)
+
+            if type_name in ('msg', 'block', 'tx', 'abi', 'type', 'super', 'this', 'uint', 'int', 'bool', 'address', 'bytes', 'string', 'keccak256', 'require', 'assert'):
+                continue
+            if func_name in ('push', 'pop', 'length', 'encode', 'decode'):
+                continue
+
+            if type_name in all_contracts or type_name.startswith('I'):
+                calls.append((type_name, func_name))
+
+        # 3. Match variable call: e.g. "variable.functionName("
         pattern = re.compile(r'\b(\w+)\s*\.\s*(\w+)\s*\(')
 
         for match in pattern.finditer(body):
@@ -113,11 +139,13 @@ class CallGraph:
             if func_name in ('push', 'pop', 'length', 'encode', 'decode'):
                 continue
 
-            if var_name in var_types:
-                target_type = var_types[var_name]
+            if var_name in local_var_types:
+                target_type = local_var_types[var_name]
                 calls.append((target_type, func_name))
 
-        return calls
+        # Deduplicate calls
+        unique_calls = list(dict.fromkeys(calls))
+        return unique_calls
 
     def find_cycles(
         self, call_graph: dict[str, list[tuple[str, str]]]
