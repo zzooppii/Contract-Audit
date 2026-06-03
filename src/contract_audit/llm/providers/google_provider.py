@@ -89,7 +89,6 @@ class GoogleProvider:
         max_tokens: int = 4096,
     ) -> LLMResponse:
         """Get a completion from Gemini."""
-        import asyncio
         client = self._get_client()
         actual_model = self._resolve_model(model)
 
@@ -107,31 +106,24 @@ class GoogleProvider:
 
         full_prompt = "\n".join(prompt_parts)
 
-        # Add structured output instruction
-        if response_schema:
-            schema_json = response_schema.model_json_schema()
-            full_prompt += (
-                f"\n\nRespond ONLY with valid JSON matching this schema:\n"
-                f"```json\n{json.dumps(schema_json, indent=2)}\n```"
-            )
-
         try:
             from google.genai import types
 
-            config = types.GenerateContentConfig(
-                temperature=temperature,
-                max_output_tokens=max_tokens,
-            )
+            config_kwargs: dict[str, Any] = {
+                "temperature": temperature,
+                "max_output_tokens": max_tokens,
+            }
+            if response_schema:
+                config_kwargs["response_mime_type"] = "application/json"
+                config_kwargs["response_schema"] = response_schema
 
-            # Run in executor to avoid blocking event loop
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: client.models.generate_content(
-                    model=actual_model,
-                    contents=full_prompt,
-                    config=config,
-                )
+            config = types.GenerateContentConfig(**config_kwargs)
+
+            # Call Gemini using the asynchronous client
+            response = await client.aio.models.generate_content(
+                model=actual_model,
+                contents=full_prompt,
+                config=config,
             )
 
             content = response.text or ""
@@ -145,13 +137,17 @@ class GoogleProvider:
         structured: dict[str, Any] | None = None
         if response_schema:
             try:
-                import re
-                json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                if json_match:
-                    parsed = response_schema.model_validate_json(json_match.group())
-                    structured = parsed.model_dump()
+                parsed = response_schema.model_validate_json(content)
+                structured = parsed.model_dump()
             except Exception as e:
-                logger.warning(f"Failed to parse structured Google response: {e}")
+                try:
+                    import re
+                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                    if json_match:
+                        parsed = response_schema.model_validate_json(json_match.group())
+                        structured = parsed.model_dump()
+                except Exception as ex:
+                    logger.warning(f"Failed to parse structured Google response: {ex} (original: {e})")
 
         return LLMResponse(
             content=content,
