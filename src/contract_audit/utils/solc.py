@@ -49,12 +49,74 @@ def detect_pragma_version(source: str) -> str | None:
     return None
 
 
+def _clean_version_string(pragma: str) -> str | None:
+    """Extract semantic version (x.y.z) from pragma string."""
+    match = re.search(r"(\d+\.\d+\.\d+)", pragma)
+    if match:
+        return match.group(1)
+    return None
+
+
+async def _setup_solc_version(version: str) -> bool:
+    """Ensure specific solc version is installed and selected via solc-select."""
+    if shutil.which(SOLC_SELECT_CMD) is None:
+        logger.debug("solc-select not found on system")
+        return False
+    try:
+        # Check if already installed
+        proc = await asyncio.create_subprocess_exec(
+            SOLC_SELECT_CMD, "versions",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        installed_versions = stdout.decode()
+
+        # If the target version is not in installed list, install it
+        if version not in installed_versions:
+            logger.info(f"Installing solc version {version} via solc-select...")
+            install_proc = await asyncio.create_subprocess_exec(
+                SOLC_SELECT_CMD, "install", version,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await install_proc.communicate()
+
+        # Select version
+        logger.info(f"Switching to solc version {version}...")
+        use_proc = await asyncio.create_subprocess_exec(
+            SOLC_SELECT_CMD, "use", version,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await use_proc.communicate()
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to setup solc version {version} via solc-select: {e}")
+        return False
+
+
 async def compile_contracts(
     project_path: Path,
     sources: dict[str, str],
     solc_version: str = "auto",
 ) -> dict[str, Any]:
     """Compile Solidity contracts and return compilation artifacts."""
+    # Try dynamic version swithing if auto or specified
+    target_version = None
+    if solc_version == "auto":
+        for src in sources.values():
+            pragma = detect_pragma_version(src)
+            if pragma:
+                target_version = _clean_version_string(pragma)
+                if target_version:
+                    break
+    elif solc_version:
+        target_version = _clean_version_string(solc_version)
+
+    if target_version:
+        await _setup_solc_version(target_version)
+
     if not solc_available():
         logger.warning("solc not found, skipping direct compilation")
         return {}
