@@ -62,9 +62,10 @@ class ASTAnalyzer:
         # Run AST-based checks
         for filename, ast in context.ast_trees.items():
             try:
-                findings.extend(self._check_unchecked_returns(filename, ast))
+                source = context.contract_sources.get(filename, "")
+                findings.extend(self._check_unchecked_returns(filename, ast, source))
                 findings.extend(self._check_missing_zero_check(filename, ast))
-                findings.extend(self._check_tx_origin(filename, ast))
+                findings.extend(self._check_tx_origin(filename, ast, source))
                 findings.extend(self._check_block_timestamp(filename, ast))
             except Exception as e:
                 logger.warning(f"AST analysis failed for {filename}: {e}")
@@ -76,7 +77,16 @@ class ASTAnalyzer:
         logger.info(f"AST analyzer found {len(findings)} findings")
         return findings
 
-    def _check_unchecked_returns(self, filename: str, ast: dict[str, Any]) -> list[Finding]:
+    def _get_line_number(self, source: str, byte_offset: int) -> int:
+        """Convert byte offset to a 1-based line number."""
+        if not source:
+            return 1
+        # Encode to utf-8 bytes to correctly map byte offsets from AST
+        encoded = source.encode('utf-8')
+        target_slice = encoded[:byte_offset]
+        return target_slice.decode('utf-8', errors='ignore').count('\n') + 1
+
+    def _check_unchecked_returns(self, filename: str, ast: dict[str, Any], source: str) -> list[Finding]:
         """Check for unchecked low-level call return values."""
         findings: list[Finding] = []
         calls_found: list[dict[str, Any]] = []
@@ -94,7 +104,8 @@ class ASTAnalyzer:
 
         for call in calls_found:
             src = call.get("src", "").split(":")
-            line = int(src[0]) // 100 if src else 0  # Rough estimate
+            offset = int(src[0]) if src else 0
+            line = self._get_line_number(source, offset)
             findings.append(
                 Finding(
                     title="Unchecked Low-Level Call Return Value",
@@ -137,7 +148,7 @@ class ASTAnalyzer:
         # Simplified check: just report if assignments exist without require nearby
         return findings  # Complex analysis deferred to Slither
 
-    def _check_tx_origin(self, filename: str, ast: dict[str, Any]) -> list[Finding]:
+    def _check_tx_origin(self, filename: str, ast: dict[str, Any], source: str) -> list[Finding]:
         """Detect tx.origin usage for authentication."""
         findings = []
         tx_origin_nodes: list[dict[str, Any]] = []
@@ -155,6 +166,7 @@ class ASTAnalyzer:
         for node in tx_origin_nodes:
             src = node.get("src", "0:0:0").split(":")
             char_pos = int(src[0]) if src else 0
+            line = self._get_line_number(source, char_pos)
             findings.append(
                 Finding(
                     title="Use of tx.origin for Authentication",
@@ -171,8 +183,8 @@ class ASTAnalyzer:
                     locations=[
                         SourceLocation(
                             file=filename,
-                            start_line=max(1, char_pos // 50),  # rough line estimate
-                            end_line=max(1, char_pos // 50),
+                            start_line=max(1, line),
+                            end_line=max(1, line),
                         )
                     ],
                 )
