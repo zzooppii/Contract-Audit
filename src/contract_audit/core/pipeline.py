@@ -37,49 +37,92 @@ class PipelineOrchestrator:
     async def run(self, context: AuditContext) -> AuditResult:
         """Execute the full audit pipeline."""
         metadata = AuditMetadata()
-        all_findings: list[Finding] = []
+        new_findings: list[Finding] = []
 
         logger.info(f"Starting audit of {context.project_path}")
 
         # Phase 1: Compile (sequential - needed by everything)
         await self._phase_compile(context, metadata)
 
-        # Phase 2+3: Analyzers and Detectors (parallel within each group)
-        logger.info("Phase 2: Running static analyzers...")
-        analyzer_results = await asyncio.gather(
-            *[self._run_analyzer(a, context) for a in self.analyzers],
-            return_exceptions=True,
-        )
-        for result in analyzer_results:
-            if isinstance(result, Exception):
-                logger.error(f"Analyzer error: {result}")
-            elif isinstance(result, list):
-                all_findings.extend(result)
+        # Cache & Incremental analysis setup
+        from .cache import AuditCache, calculate_hash
+        cache = AuditCache(context.project_path)
+        cache.load()
 
-        logger.info("Phase 3: Running specialized detectors...")
-        detector_results = await asyncio.gather(
-            *[self._run_detector(d, context) for d in self.detectors],
-            return_exceptions=True,
-        )
-        for result in detector_results:
-            if isinstance(result, Exception):
-                logger.error(f"Detector error: {result}")
-            elif isinstance(result, list):
-                all_findings.extend(result)
+        file_hashes: dict[str, str] = {}
+        cached_findings: list[Finding] = []
+        active_sources: dict[str, str] = {}
 
-        # Phase 3.5: LLM-based direct audit (optional)
-        if self.llm_router and context.config.llm_enabled:
-            logger.info("Phase 3.5: LLM direct audit...")
-            all_findings.extend(
-                await self._phase_llm_audit(context)
+        if context.contract_sources:
+            for filepath, source in context.contract_sources.items():
+                h = calculate_hash(source)
+                file_hashes[filepath] = h
+                cached = cache.get_cached_findings(filepath, h)
+                if cached is not None:
+                    cached_findings.extend(cached)
+                    logger.info(f"Incremental Audit: {filepath} is unchanged. Using {len(cached)} cached findings.")
+                else:
+                    active_sources[filepath] = source
+                    logger.info(f"Incremental Audit: {filepath} is modified. Running analysis.")
+
+        # Save original full contract sources
+        original_sources = context.contract_sources.copy()
+
+        # Temporarily restrict contract sources to only modified files for analysis phases
+        if active_sources:
+            context.contract_sources = active_sources
+
+            # Phase 2+3: Analyzers and Detectors (parallel within each group)
+            logger.info("Phase 2: Running static analyzers...")
+            analyzer_results = await asyncio.gather(
+                *[self._run_analyzer(a, context) for a in self.analyzers],
+                return_exceptions=True,
             )
+            for result in analyzer_results:
+                if isinstance(result, Exception):
+                    logger.error(f"Analyzer error: {result}")
+                elif isinstance(result, list):
+                    new_findings.extend(result)
 
-        # Phase 4: Dynamic analysis (optional)
-        if context.config.foundry_fuzz_enabled or context.config.symbolic_enabled:
-            logger.info("Phase 4: Running dynamic analysis...")
-            all_findings.extend(
-                await self._phase_dynamic(context, existing_findings=all_findings)
+            logger.info("Phase 3: Running specialized detectors...")
+            detector_results = await asyncio.gather(
+                *[self._run_detector(d, context) for d in self.detectors],
+                return_exceptions=True,
             )
+            for result in detector_results:
+                if isinstance(result, Exception):
+                    logger.error(f"Detector error: {result}")
+                elif isinstance(result, list):
+                    new_findings.extend(result)
+
+            # Phase 3.5: LLM-based direct audit (optional)
+            if self.llm_router and context.config.llm_enabled:
+                logger.info("Phase 3.5: LLM direct audit...")
+                new_findings.extend(
+                    await self._phase_llm_audit(context)
+                )
+
+            # Phase 4: Dynamic analysis (optional)
+            if context.config.foundry_fuzz_enabled or context.config.symbolic_enabled:
+                logger.info("Phase 4: Running dynamic analysis...")
+                new_findings.extend(
+                    await self._phase_dynamic(context, existing_findings=new_findings)
+                )
+
+            # Restore original full contract sources for scoring and reporting phases
+            context.contract_sources = original_sources
+
+            # Update cache for analyzed active files
+            for filepath in active_sources.keys():
+                h = file_hashes[filepath]
+                cache.update_file_cache(filepath, h, new_findings)
+            cache.save()
+        else:
+            logger.info("Incremental Audit: No files modified. Skipping all analysis phases.")
+            context.contract_sources = original_sources
+
+        # Combine new and cached findings
+        all_findings = new_findings + cached_findings
 
         # Deduplicate and correlate
         logger.info(f"Deduplicating {len(all_findings)} total findings...")
