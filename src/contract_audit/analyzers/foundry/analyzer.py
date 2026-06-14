@@ -126,7 +126,7 @@ class FoundryAnalyzer:
             logger.info(f"Created {remappings}")
 
     async def _run_forge(self, context: AuditContext) -> list[Finding]:
-        """Execute forge test --json."""
+        """Execute forge test --json with compilation error recovery."""
         fuzz_seed = getattr(context.config, "fuzz_seed", "0xDEADBEEF")
         fuzz_runs = getattr(context.config, "fuzz_runs", 256)
 
@@ -136,60 +136,85 @@ class FoundryAnalyzer:
             "--no-match-test", "testSkip",
         ]
 
-        # Pass fuzz config via env vars — compatible with all Foundry versions
         env = {
             **os.environ,
             "FOUNDRY_FUZZ_RUNS": str(fuzz_runs),
             "FOUNDRY_FUZZ_SEED": str(fuzz_seed),
         }
 
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(context.project_path),
-                env=env,
-            )
-
+        max_retries = 3
+        for attempt in range(max_retries):
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=600  # 10 minute timeout
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=str(context.project_path),
+                    env=env,
                 )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                logger.error("Foundry tests timed out after 10 minutes")
-                return []
 
-            # Log stderr — compilation errors surface here
-            if stderr:
-                stderr_text = stderr.decode(errors="replace")
-                if "error" in stderr_text.lower():
-                    logger.warning(f"Forge stderr:\n{stderr_text[:2000]}")
-                else:
-                    logger.debug(f"Forge stderr: {stderr_text[:500]}")
-
-            if not stdout:
-                if stderr:
-                    logger.warning(
-                        f"forge produced no output. Stderr:\n"
-                        f"{stderr.decode(errors='replace')[:2000]}"
+                try:
+                    stdout, stderr = await asyncio.wait_for(
+                        proc.communicate(), timeout=600  # 10 minute timeout
                     )
-                else:
-                    logger.warning("forge produced no output")
-                return []
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    await proc.wait()
+                    logger.error("Foundry tests timed out after 10 minutes")
+                    return []
 
-            # forge test --json exits non-zero when tests fail (expected)
-            try:
-                output = json.loads(stdout.decode())
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse forge output: {e}")
-                return []
+                stderr_text = stderr.decode(errors="replace") if stderr else ""
 
-            findings = parse_foundry_results(output)
-            logger.info(f"Foundry: {len(findings)} failing tests")
-            return findings
+                # Check for compilation errors in generated harness files
+                if "error" in stderr_text.lower() or "parsererror" in stderr_text.lower():
+                    # Parse problematic harness paths: e.g. test/audit_targeted/Targeted_Vault_deposit.t.sol
+                    import re
+                    err_paths = re.findall(r'(test/audit_\w+/[A-Za-z0-9_.-]+\.t\.sol)', stderr_text)
+                    if err_paths:
+                        unique_errs = list(set(err_paths))
+                        removed_any = False
+                        for path_str in unique_errs:
+                            file_path = context.project_path / path_str
+                            if file_path.exists():
+                                try:
+                                    file_path.unlink()
+                                    logger.warning(
+                                        f"Foundry compilation error in generated harness: {path_str}. "
+                                        f"Removed file to recover build. Retrying ({attempt + 1}/{max_retries})..."
+                                    )
+                                    removed_any = True
+                                except Exception as ue:
+                                    logger.debug(f"Failed to remove broken harness {file_path}: {ue}")
 
-        except Exception as e:
-            raise AnalyzerError(self.name, str(e)) from e
+                        if removed_any:
+                            continue  # Retry forge command
+
+                # Log non-fatal or generic stderr
+                if stderr_text:
+                    if "error" in stderr_text.lower():
+                        logger.warning(f"Forge stderr:\n{stderr_text[:2000]}")
+                    else:
+                        logger.debug(f"Forge stderr: {stderr_text[:500]}")
+
+                if not stdout:
+                    if stderr_text:
+                        logger.warning(f"forge produced no output. Stderr:\n{stderr_text[:2000]}")
+                    else:
+                        logger.warning("forge produced no output")
+                    return []
+
+                # forge test --json exits non-zero when tests fail (expected)
+                try:
+                    output = json.loads(stdout.decode())
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse forge output: {e}")
+                    return []
+
+                findings = parse_foundry_results(output)
+                logger.info(f"Foundry: {len(findings)} failing tests")
+                return findings
+
+            except Exception as e:
+                raise AnalyzerError(self.name, str(e)) from e
+
+        return []
