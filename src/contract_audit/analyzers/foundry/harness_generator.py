@@ -131,11 +131,31 @@ def _build_constructor_setup(
             base_type = type_[:-2]
             ctor_args.append(f"new {base_type}[](0)")
         elif re.match(r'.+\[\d+\]$', type_):
-            # Fixed-size array — cannot easily initialise inline; emit TODO comment
-            ctor_args.append(f"/* TODO: {type_} */")
+            # Fixed-size array - convert to a Solidity array literal
+            match = re.match(r'(.+)\[(\d+)\]$', type_)
+            if match:
+                base_type = match.group(1)
+                size = int(match.group(2))
+
+                # Determine safe default value for array elements
+                if base_type.startswith("uint") or base_type.startswith("int"):
+                    default_val = "0"
+                elif base_type == "address":
+                    default_val = "address(0)"
+                elif base_type == "bool":
+                    default_val = "false"
+                elif base_type == "bytes32":
+                    default_val = "bytes32(0)"
+                else:
+                    default_val = f"{base_type}(0)"
+
+                array_literal = f"[{', '.join(default_val for _ in range(size))}]"
+                ctor_args.append(array_literal)
+            else:
+                raise ValueError(f"Failed to parse fixed-size array type: {type_}")
         elif type_.startswith("(") or "tuple" in type_:
-            # Tuple / struct — cannot auto-generate; emit TODO comment
-            ctor_args.append(f"/* TODO: {type_} */")
+            # Tuple / struct - cannot be inline mocked safely in setup, raise error to skip
+            raise ValueError(f"Unsupported complex constructor parameter type: {type_}")
         else:
             # Unknown scalar — attempt cast-to-zero
             ctor_args.append(f"{type_}(0)")
@@ -186,7 +206,14 @@ def generate_fuzz_harness(
     test_file = output_dir / f"Fuzz{contract_name}.t.sol"
 
     import_path = source_path if source_path else f"src/{contract_name}.sol"
-    mock_code, setup_body = _build_constructor_setup(contract_name, constructor_abi)
+    try:
+        mock_code, setup_body = _build_constructor_setup(contract_name, constructor_abi)
+    except ValueError as e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            f"Skipping fuzz harness generation for {contract_name}: {e}"
+        )
+        return Path("")
 
     function_tests = []
     for fn in functions:
@@ -336,7 +363,14 @@ def generate_targeted_harness(
     param_decls = ", ".join(f"{t} {n}" for t, n in params)
     call_args = ", ".join(n for _, n in params)
 
-    mock_code, setup_body = _build_constructor_setup(contract_name, constructor_abi)
+    try:
+        mock_code, setup_body = _build_constructor_setup(contract_name, constructor_abi)
+    except ValueError as e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            f"Skipping targeted harness generation for {contract_name}: {e}"
+        )
+        return Path("")
 
     test_file = output_dir / f"Targeted_{contract_name}_{safe_fn}.t.sol"
 
