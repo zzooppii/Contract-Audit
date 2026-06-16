@@ -160,7 +160,14 @@ def generate_invariant_tests(
     test_bodies = "\n".join(t["test"] for t in applicable_tests)
 
     import_path = source_path if source_path else f"src/{contract_name}.sol"
-    mock_code, setup_body = _build_constructor_setup(contract_name, constructor_abi)
+    try:
+        mock_code, setup_body = _build_constructor_setup(contract_name, constructor_abi)
+    except ValueError as e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            f"Skipping invariant harness generation for {contract_name}: {e}"
+        )
+        return Path("")
     mock_section = f"\n{mock_code}\n" if mock_code else ""
 
     content = f"""// SPDX-License-Identifier: MIT
