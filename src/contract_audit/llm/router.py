@@ -18,6 +18,16 @@ from .providers.google_provider import GoogleProvider
 logger = logging.getLogger(__name__)
 
 
+# Intelligent default routes based on task complexity
+INTELLIGENT_DEFAULTS: dict[str, dict[str, str]] = {
+    "triage": {"google": "gemini-2.0-flash", "anthropic": "claude-haiku-4-5-20251001"},
+    "explain": {"google": "gemini-2.0-flash", "anthropic": "claude-haiku-4-5-20251001"},
+    "remediate": {"google": "gemini-2.0-pro", "anthropic": "claude-sonnet-4-6"},
+    "poc": {"google": "gemini-2.0-pro", "anthropic": "claude-sonnet-4-6"},
+    "audit": {"google": "gemini-2.0-pro", "anthropic": "claude-sonnet-4-6"},
+}
+
+
 class LLMRouter:
     """Routes LLM tasks to the appropriate provider/model based on config."""
 
@@ -84,35 +94,53 @@ class LLMRouter:
         if self.budget_tracker.is_exhausted:
             raise BudgetExhaustedError(self.budget_tracker.spent_usd)
 
+        # 1. Budget Preservation Mode Check
+        max_usd = self.budget_tracker.max_usd
+        spent_usd = self.budget_tracker.spent_usd
+        remaining_usd = max_usd - spent_usd
+
+        budget_preservation_mode = False
+        if max_usd > 0 and (remaining_usd / max_usd) < 0.2:
+            if task_type != "poc":
+                budget_preservation_mode = True
+                logger.info(
+                    f"LLM Budget Preservation Mode active. Remaining: ${remaining_usd:.4f} "
+                    f"({(remaining_usd/max_usd)*100:.1f}%). Downgrading model for '{task_type}'."
+                )
+
+        # 2. Determine base route
         route = self.task_routing.get(task_type)
-        if not route:
-            logger.warning(f"No route configured for task '{task_type}', using defaults")
-            route = TaskRoute(provider="anthropic", model="claude-opus-4-6")
+        provider_name = None
+        model = None
 
-        provider_name = route.provider
-        model = route.model
+        if route:
+            provider_name = route.provider
+            model = route.model
 
-        # Try primary provider, fall back to other
+        # Fallback to defaults if provider not configured or not active
+        if not provider_name or provider_name not in self.providers:
+            if self.providers:
+                provider_name = next(iter(self.providers.keys()))
+            else:
+                raise RuntimeError("No LLM providers configured or available.")
+
+        # Resolve model from defaults if not set
+        if not model:
+            provider_defaults = INTELLIGENT_DEFAULTS.get(task_type, {})
+            model = provider_defaults.get(provider_name)
+            if not model:
+                model = "claude-haiku-4-5-20251001" if provider_name == "anthropic" else "gemini-2.0-flash"
+
+        # 3. Apply Budget Preservation Downgrade
+        if budget_preservation_mode:
+            if provider_name == "anthropic":
+                model = "claude-haiku-4-5-20251001"
+            elif provider_name == "google":
+                model = "gemini-2.0-flash"
+
         provider = self.providers.get(provider_name)
         if not provider:
-            # Try any available provider
-            for name, p in self.providers.items():
-                provider = p
-                provider_name = name
-                logger.warning(
-                    f"Provider '{route.provider}' not available, using '{name}'"
-                )
-                # Use default model for this provider
-                if name == "anthropic":
-                    model = "claude-opus-4-6"
-                else:
-                    model = "gemini-2.0-flash"
-                break
-
-        if not provider:
-            raise RuntimeError(
-                "No LLM providers available. Set ANTHROPIC_API_KEY or GOOGLE_AI_API_KEY."
-            )
+            raise RuntimeError(f"Routed provider '{provider_name}' is not initialized.")
 
         logger.debug(f"Routing task '{task_type}' to {provider_name}:{model}")
 
