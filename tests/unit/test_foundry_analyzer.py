@@ -320,3 +320,43 @@ class TestFoundryAnalyzerForgeCommand:
 
         assert any("stderr" in r.message.lower() or "compilation" in r.message.lower()
                    for r in caplog.records)
+
+
+class TestFoundryCompilationRecovery:
+    @pytest.mark.asyncio
+    async def test_run_forge_recovers_from_compilation_error(self, tmp_path):
+        analyzer = FoundryAnalyzer()
+        context = _make_context(tmp_path)
+
+        # Create a mock error test file inside tmp_path
+        harness_dir = tmp_path / "test" / "audit_targeted"
+        harness_dir.mkdir(parents=True, exist_ok=True)
+        bad_file = harness_dir / "Targeted_Vault_deposit.t.sol"
+        bad_file.write_text("broken solidity code")
+
+        rel_bad_file_str = "test/audit_targeted/Targeted_Vault_deposit.t.sol"
+
+        first_stderr = f"Error: compilation failed\n  --> {rel_bad_file_str}:10:1\n".encode()
+        second_stdout = b'{"src/Vault.t.sol": {"test_results": {}}}'
+
+        call_count = 0
+        async def fake_wait_for(coro, timeout):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return (b"", first_stderr)
+            else:
+                return (second_stdout, b"")
+
+        with patch("shutil.which", return_value="/usr/bin/forge"), \
+             patch("asyncio.create_subprocess_exec") as mock_exec, \
+             patch("asyncio.wait_for", side_effect=fake_wait_for):
+            mock_proc = MagicMock()
+            mock_proc.communicate = AsyncMock(side_effect=[(b"", first_stderr), (second_stdout, b"")])
+            mock_exec.return_value = mock_proc
+
+            findings = await analyzer.analyze(context)
+
+        assert findings == []
+        assert call_count == 2
+        assert not bad_file.exists()
