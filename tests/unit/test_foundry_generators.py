@@ -1,5 +1,6 @@
 """Unit tests for Foundry harness and invariant generators."""
 
+from pathlib import Path
 
 from contract_audit.core.models import (
     Confidence,
@@ -283,15 +284,14 @@ class TestHarnessWithConstructorArgs:
         ctor_abi = [{"type": "address[3]", "name": "_signers"}]
         result = generate_fuzz_harness("MultiSig", [], tmp_path, constructor_abi=ctor_abi)
         content = result.read_text()
-        assert "/* TODO:" in content
+        assert "[address(0), address(0), address(0)]" in content
 
     def test_tuple_constructor_arg(self, tmp_path):
         from contract_audit.analyzers.foundry.harness_generator import generate_fuzz_harness
 
         ctor_abi = [{"type": "(address,uint256)", "name": "_config"}]
         result = generate_fuzz_harness("Vault", [], tmp_path, constructor_abi=ctor_abi)
-        content = result.read_text()
-        assert "/* TODO:" in content
+        assert result == Path("")
 
     def test_targeted_harness_with_constructor_and_source_path(self, tmp_path):
         from contract_audit.analyzers.foundry.harness_generator import generate_targeted_harness
