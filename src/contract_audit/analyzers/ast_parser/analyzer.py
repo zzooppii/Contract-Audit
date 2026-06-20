@@ -64,7 +64,7 @@ class ASTAnalyzer:
             try:
                 source = context.contract_sources.get(filename, "")
                 findings.extend(self._check_unchecked_returns(filename, ast, source))
-                findings.extend(self._check_missing_zero_check(filename, ast))
+                findings.extend(self._check_missing_zero_check(filename, ast, source))
                 findings.extend(self._check_tx_origin(filename, ast, source))
                 findings.extend(self._check_block_timestamp(filename, ast))
             except Exception as e:
@@ -129,24 +129,115 @@ class ASTAnalyzer:
             )
         return findings
 
-    def _check_missing_zero_check(self, filename: str, ast: dict[str, Any]) -> list[Finding]:
+    def _check_missing_zero_check(self, filename: str, ast: dict[str, Any], source: str) -> list[Finding]:
         """Check for missing zero-address checks on address parameters."""
         findings: list[Finding] = []
-        # Look for functions setting address state variables without zero check
-        addr_assignments: list[dict[str, Any]] = []
 
-        def find_address_assigns(node: dict[str, Any]) -> None:
-            if node.get("nodeType") == "Assignment":
-                right = node.get("rightHandSide", {})
-                if right.get("nodeType") == "Identifier":
-                    type_name = node.get("typeDescriptions", {}).get("typeString", "")
-                    if "address" in type_name:
-                        addr_assignments.append(node)
+        # Collect all functions
+        functions: list[dict[str, Any]] = []
+        def collect_functions(node: dict[str, Any]) -> None:
+            if node.get("nodeType") == "FunctionDefinition":
+                functions.append(node)
+        walk_ast(ast, collect_functions)
 
-        walk_ast(ast, find_address_assigns)
-        # Would need full function context to check for zero-address require
-        # Simplified check: just report if assignments exist without require nearby
-        return findings  # Complex analysis deferred to Slither
+        for func in functions:
+            if func.get("stateMutability") in ("view", "pure") or not func.get("body"):
+                continue
+
+            # Get address params
+            params = func.get("parameters", {}).get("parameters", [])
+            addr_params = []
+            for p in params:
+                type_desc = p.get("typeDescriptions", {}).get("typeString", "")
+                p_name = p.get("name", "")
+                if "address" in type_desc and p_name:
+                    addr_params.append(p_name)
+
+            if not addr_params:
+                continue
+
+            body = func.get("body", {})
+            checked_params: set[str] = set()
+
+            # Helper to identify if a node is address(0) or 0
+            # 노드가 address(0) 또는 0인지 판별하는 헬퍼 함수
+            def is_zero_node(n: dict[str, Any]) -> bool:
+                if n.get("nodeType") == "FunctionCall":
+                    expr = n.get("expression", {})
+                    # address(0)의 경우 nodeType이 ElementaryTypeNameExpression이고 typeName.name이 address이거나,
+                    # name이 address인 경우
+                    is_addr_conversion = (
+                        expr.get("name") == "address" or
+                        expr.get("typeName", {}).get("name") == "address" or
+                        (expr.get("nodeType") == "ElementaryTypeNameExpression" and expr.get("typeName", {}).get("name") == "address")
+                    )
+                    arguments = n.get("arguments", [])
+                    if is_addr_conversion and arguments:
+                        first_arg = arguments[0]
+                        if first_arg.get("nodeType") == "Literal" and str(first_arg.get("value")) in ("0", "0x0", "0x0000000000000000000000000000000000000000"):
+                            return True
+                if n.get("nodeType") == "Literal" and str(n.get("value")) in ("0", "0x0", "0x0000000000000000000000000000000000000000"):
+                    return True
+                return False
+
+            # Step 1: Collect all checked parameters in binary conditions
+            # 1단계: 바이너리 조건문에서 검증된 파라미터 수집
+            def find_zero_guards(node: dict[str, Any]) -> None:
+                if node.get("nodeType") == "BinaryOperation":
+                    operator = node.get("operator", "")
+                    if operator in ("==", "!="):
+                        left = node.get("leftExpression", {})
+                        right = node.get("rightExpression", {})
+
+                        l_name = left.get("name", "")
+                        r_name = right.get("name", "")
+
+                        if l_name in addr_params and is_zero_node(right):
+                            checked_params.add(l_name)
+                        elif r_name in addr_params and is_zero_node(left):
+                            checked_params.add(r_name)
+            walk_ast(body, find_zero_guards)
+
+            # Step 2: Detect assignments of unchecked parameters to state vars
+            # 2단계: 검증되지 않은 파라미터가 상태 변수에 할당되는지 감지
+            def find_unprotected_assignments(node: dict[str, Any]) -> None:
+                if node.get("nodeType") == "Assignment":
+                    left = node.get("leftHandSide", {})
+                    right = node.get("rightHandSide", {})
+
+                    r_name = right.get("name", "")
+                    if r_name in addr_params and r_name not in checked_params:
+                        l_name = left.get("name", "")
+                        if l_name:
+                            src = node.get("src", "0:0:0").split(":")
+                            offset = int(src[0]) if src else 0
+                            line = self._get_line_number(source, offset)
+                            findings.append(
+                                Finding(
+                                    title="Missing Zero Address Validation",
+                                    description=(
+                                        f"Address parameter `{r_name}` is assigned to state variable `{l_name}` "
+                                        f"without a zero-address validation check. This can result in locking the "
+                                        f"contract state or blocking transactions if set to `address(0)`."
+                                    ),
+                                    severity=Severity.LOW,
+                                    confidence=Confidence.HIGH,
+                                    category=FindingCategory.ACCESS_CONTROL,
+                                    source=self.name,
+                                    detector_name="missing-zero-check",
+                                    locations=[
+                                        SourceLocation(
+                                            file=filename,
+                                            start_line=max(1, line),
+                                            end_line=max(1, line),
+                                            function=func.get("name", ""),
+                                        )
+                                    ],
+                                )
+                            )
+            walk_ast(body, find_unprotected_assignments)
+
+        return findings
 
     def _check_tx_origin(self, filename: str, ast: dict[str, Any], source: str) -> list[Finding]:
         """Detect tx.origin usage for authentication."""
