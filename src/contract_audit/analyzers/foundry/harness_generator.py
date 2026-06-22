@@ -64,103 +64,148 @@ _TIME_HINTS = {"time", "delay", "period", "duration", "lock", "expir"}
 _AMOUNT_HINTS = {"amount", "supply", "total", "cap", "limit", "balance"}
 
 
+def _get_default_value_for_abi_type(
+    inp: dict[str, Any],
+    contract_name: str,
+    mock_counter_ref: list[int],
+    mocks_needed: set[str],
+    setup_lines: list[str],
+) -> str:
+    """Solidity ABI 타입에 대한 문법 정합적 디폴트/모킹 리터럴 값을 반환하는 재귀 헬퍼 함수."""
+    type_ = inp.get("type", "")
+    raw_name = inp.get("name", "")
+    name_lower = raw_name.lower().lstrip("_")
+
+    if type_ == "address":
+        mc = mock_counter_ref[0]
+        mock_counter_ref[0] += 1
+        if any(h in name_lower for h in _TOKEN_HINTS):
+            mocks_needed.add("erc20")
+            var = f"mockToken{mc}"
+            setup_lines.append(f"MockERC20 {var} = new MockERC20();")
+            setup_lines.append(f"{var}.mint(address(this), 1_000_000e18);")
+            return f"address({var})"
+        elif any(h in name_lower for h in _ORACLE_HINTS):
+            mocks_needed.add("oracle")
+            var = f"mockOracle{mc}"
+            setup_lines.append(f"MockOracle {var} = new MockOracle();")
+            return f"address({var})"
+        else:
+            return f"address({mc + 1})"
+
+    elif type_.startswith("uint") or type_.startswith("int"):
+        if any(h in name_lower for h in _TIME_HINTS):
+            return "3600"
+        elif any(h in name_lower for h in _AMOUNT_HINTS):
+            return "1_000_000e18"
+        else:
+            return "100"
+
+    elif type_ == "bool":
+        return "true"
+    elif type_ == "bytes32":
+        return "bytes32(0)"
+    elif type_ in ("string",):
+        return '""'
+    elif type_ in ("bytes",):
+        return '""'
+    elif type_.endswith("[]"):
+        # 동적 배열
+        base_type = type_[:-2]
+        internal_type = inp.get("internalType", "")
+        if internal_type.startswith("struct ") and internal_type.endswith("[]"):
+            struct_type = internal_type[7:-2]
+            if "." not in struct_type:
+                struct_type = f"{contract_name}.{struct_type}"
+            return f"new {struct_type}[](0)"
+        return f"new {base_type}[](0)"
+    elif re.match(r'.+\[\d+\]$', type_):
+        # 고정 크기 배열
+        match = re.match(r'(.+)\[(\d+)\]$', type_)
+        if match:
+            base_type = match.group(1)
+            size = int(match.group(2))
+            
+            # 배열 요소에 대해서는 모킹 주소를 매핑하지 않고 일반 디폴트 값으로 지정
+            if base_type == "address":
+                default_val = "address(0)"
+            elif base_type.startswith("uint") or base_type.startswith("int"):
+                default_val = "0"
+            elif base_type == "bool":
+                default_val = "false"
+            elif base_type == "bytes32":
+                default_val = "bytes32(0)"
+            else:
+                dummy_inp = {"type": base_type, "name": raw_name}
+                default_val = _get_default_value_for_abi_type(dummy_inp, contract_name, mock_counter_ref, mocks_needed, setup_lines)
+            return f"[{', '.join(default_val for _ in range(size))}]"
+        return "new uint256[](0)" # 예외 방어
+    elif type_.startswith("(") and type_.endswith(")"):
+        # 괄호 제거 후 콤마 분리 (익명 튜플 문자열 파싱)
+        inner = type_[1:-1]
+        parts = []
+        depth = 0
+        current = []
+        for char in inner:
+            if char == "," and depth == 0:
+                parts.append("".join(current).strip())
+                current = []
+            else:
+                if char == "(":
+                    depth += 1
+                elif char == ")":
+                    depth -= 1
+                current.append(char)
+        if current:
+            parts.append("".join(current).strip())
+            
+        component_vals = []
+        for part in parts:
+            dummy_inp = {"type": part, "name": raw_name}
+            val = _get_default_value_for_abi_type(dummy_inp, contract_name, mock_counter_ref, mocks_needed, setup_lines)
+            component_vals.append(val)
+        return f"({', '.join(component_vals)})"
+    elif type_ == "tuple" or "tuple" in type_:
+        # 구조체 / 튜플
+        components = inp.get("components", [])
+        component_vals = []
+        for comp in components:
+            val = _get_default_value_for_abi_type(comp, contract_name, mock_counter_ref, mocks_needed, setup_lines)
+            component_vals.append(val)
+        
+        internal_type = inp.get("internalType", "")
+        if internal_type.startswith("struct "):
+            struct_type = internal_type[7:]
+            # struct 이름에 소속 계약(Contract)명이 명시되어 있지 않은 경우, 타겟 계약 이름을 붙여줌
+            if "." not in struct_type:
+                struct_type = f"{contract_name}.{struct_type}"
+            return f"{struct_type}({', '.join(component_vals)})"
+        
+        # 이름 없는 튜플인 경우, 튜플 리터럴 리턴
+        return f"({', '.join(component_vals)})"
+    else:
+        # 알 수 없는 스칼라 타입 캐스팅 처리
+        return f"{type_}(0)"
+
+
 def _build_constructor_setup(
     contract_name: str,
     constructor_inputs: list[dict[str, Any]] | None,
 ) -> tuple[str, str]:
-    """Generate setUp() body and any required mock contract code.
-
-    Args:
-        contract_name: Solidity contract being tested
-        constructor_inputs: ABI ``inputs`` list from the constructor entry,
-            or ``None`` / empty list for zero-arg constructors.
-
-    Returns:
-        ``(mock_code, setup_body)`` where *mock_code* is emitted before the
-        test contract in the file and *setup_body* replaces the contents of
-        ``setUp()``.
-    """
+    """Foundry setUp() 함수 내부 바디 코드 및 필요 모의 계약 코드를 생성합니다."""
     if not constructor_inputs:
         return "", f"target = new {contract_name}();"
 
     mocks_needed: set[str] = set()
     setup_lines: list[str] = []
     ctor_args: list[str] = []
-    mock_counter = 0
+    mock_counter = [0] # 재귀 전달용 레퍼런스 공유 리스트
 
     for inp in constructor_inputs:
-        type_ = inp.get("type", "")
-        raw_name = inp.get("name", "")
-        name_lower = raw_name.lower().lstrip("_")
+        val = _get_default_value_for_abi_type(inp, contract_name, mock_counter, mocks_needed, setup_lines)
+        ctor_args.append(val)
 
-        if type_ == "address":
-            if any(h in name_lower for h in _TOKEN_HINTS):
-                mocks_needed.add("erc20")
-                var = f"mockToken{mock_counter}"
-                setup_lines.append(f"MockERC20 {var} = new MockERC20();")
-                setup_lines.append(f"{var}.mint(address(this), 1_000_000e18);")
-                ctor_args.append(f"address({var})")
-            elif any(h in name_lower for h in _ORACLE_HINTS):
-                mocks_needed.add("oracle")
-                var = f"mockOracle{mock_counter}"
-                setup_lines.append(f"MockOracle {var} = new MockOracle();")
-                ctor_args.append(f"address({var})")
-            else:
-                # Generic address — use a deterministic placeholder
-                ctor_args.append(f"address({mock_counter + 1})")
-            mock_counter += 1
-
-        elif type_.startswith("uint") or type_.startswith("int"):
-            if any(h in name_lower for h in _TIME_HINTS):
-                ctor_args.append("3600")
-            elif any(h in name_lower for h in _AMOUNT_HINTS):
-                ctor_args.append("1_000_000e18")
-            else:
-                ctor_args.append("100")
-
-        elif type_ == "bool":
-            ctor_args.append("true")
-        elif type_ == "bytes32":
-            ctor_args.append("bytes32(0)")
-        elif type_ in ("string",):
-            ctor_args.append('""')
-        elif type_ in ("bytes",):
-            ctor_args.append('""')
-        elif type_.endswith("[]"):
-            # Dynamic array — pass empty array
-            base_type = type_[:-2]
-            ctor_args.append(f"new {base_type}[](0)")
-        elif re.match(r'.+\[\d+\]$', type_):
-            # Fixed-size array - convert to a Solidity array literal
-            match = re.match(r'(.+)\[(\d+)\]$', type_)
-            if match:
-                base_type = match.group(1)
-                size = int(match.group(2))
-
-                # Determine safe default value for array elements
-                if base_type.startswith("uint") or base_type.startswith("int"):
-                    default_val = "0"
-                elif base_type == "address":
-                    default_val = "address(0)"
-                elif base_type == "bool":
-                    default_val = "false"
-                elif base_type == "bytes32":
-                    default_val = "bytes32(0)"
-                else:
-                    default_val = f"{base_type}(0)"
-
-                array_literal = f"[{', '.join(default_val for _ in range(size))}]"
-                ctor_args.append(array_literal)
-            else:
-                raise ValueError(f"Failed to parse fixed-size array type: {type_}")
-        elif type_.startswith("(") or "tuple" in type_:
-            # Tuple / struct - cannot be inline mocked safely in setup, raise error to skip
-            raise ValueError(f"Unsupported complex constructor parameter type: {type_}")
-        else:
-            # Unknown scalar — attempt cast-to-zero
-            ctor_args.append(f"{type_}(0)")
-
-    # Assemble mock code block (only include each mock once)
+    # 모킹에 사용된 코드 블록 결합
     mock_parts: list[str] = []
     if "erc20" in mocks_needed:
         mock_parts.append(MOCK_ERC20)
@@ -173,6 +218,7 @@ def _build_constructor_setup(
     setup_body = f"{setup_prefix}\n        {deploy}" if setup_prefix else deploy
 
     return mock_code, setup_body
+
 
 
 # ---------------------------------------------------------------------------
