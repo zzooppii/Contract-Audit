@@ -47,7 +47,11 @@ class CrossContractDetector:
         import_graph = ImportResolver().resolve(context.contract_sources)
         inheritance_map = InheritanceGraph().build(context.contract_sources)
         call_graph_builder = CallGraph()
-        call_graph = call_graph_builder.build(context.contract_sources, inheritance_map)
+        call_graph = call_graph_builder.build(
+            context.contract_sources,
+            inheritance_map,
+            context.ast_trees
+        )
 
         # Store in context for other detectors
         context.import_graph = import_graph
