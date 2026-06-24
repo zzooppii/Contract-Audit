@@ -291,7 +291,9 @@ class TestHarnessWithConstructorArgs:
 
         ctor_abi = [{"type": "(address,uint256)", "name": "_config"}]
         result = generate_fuzz_harness("Vault", [], tmp_path, constructor_abi=ctor_abi)
-        assert result == Path("")
+        assert result != Path("")
+        content = result.read_text()
+        assert "(address(1), 100)" in content
 
     def test_targeted_harness_with_constructor_and_source_path(self, tmp_path):
         from contract_audit.analyzers.foundry.harness_generator import generate_targeted_harness
