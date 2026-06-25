@@ -141,3 +141,89 @@ class TestFalsePositiveReducerEnhanced:
         reducer = FalsePositiveReducer()
         assert reducer.triage_threshold == 0.7
         assert reducer.context_window == 10
+
+
+class TestLLMRouter:
+    @pytest.mark.asyncio
+    async def test_intelligent_default_routing(self):
+        from contract_audit.llm.router import LLMRouter
+        from contract_audit.core.config import LLMConfig
+        from contract_audit.auth.token_store import TokenStore
+
+        config = LLMConfig()
+        mock_pcfg = MagicMock()
+        mock_pcfg.api_key_env = "GOOGLE_AI_API_KEY"
+        config.providers = {"google": mock_pcfg}
+        config.task_routing = {}
+        config.max_budget_usd = 10.0
+
+        token_store = MagicMock()
+
+        mock_google = MagicMock()
+        mock_google.is_available.return_value = True
+        mock_google.name = "google"
+
+        async def mock_complete(*args, **kwargs):
+            from contract_audit.core.models import LLMResponse
+            return LLMResponse(
+                content="test response",
+                model=kwargs.get("model", ""),
+                provider="google",
+                input_tokens=10,
+                output_tokens=10,
+                cost_usd=0.01
+            )
+        mock_google.complete = mock_complete
+
+        router = LLMRouter(config, token_store)
+        router.providers = {"google": mock_google}
+
+        response = await router.execute_task("triage", [{"role": "user", "content": "hello"}])
+
+        assert response.provider == "google"
+        assert response.model == "gemini-2.0-flash"
+
+    @pytest.mark.asyncio
+    async def test_budget_preservation_mode(self):
+        from contract_audit.llm.router import LLMRouter
+        from contract_audit.core.config import LLMConfig, TaskRoute
+        from contract_audit.auth.token_store import TokenStore
+
+        config = LLMConfig()
+        mock_pcfg = MagicMock()
+        mock_pcfg.api_key_env = "GOOGLE_AI_API_KEY"
+        config.providers = {"google": mock_pcfg}
+        config.task_routing = {"explain": TaskRoute(provider="google", model="gemini-2.0-pro")}
+        config.max_budget_usd = 1.0
+
+        token_store = MagicMock()
+
+        mock_google = MagicMock()
+        mock_google.is_available.return_value = True
+        mock_google.name = "google"
+
+        async def mock_complete(*args, **kwargs):
+            from contract_audit.core.models import LLMResponse
+            return LLMResponse(
+                content="test response",
+                model=kwargs.get("model", ""),
+                provider="google",
+                input_tokens=10,
+                output_tokens=10,
+                cost_usd=0.01
+            )
+        mock_google.complete = mock_complete
+
+        router = LLMRouter(config, token_store)
+        router.providers = {"google": mock_google}
+
+        router.budget_tracker._spent_usd = 0.85
+
+        response = await router.execute_task("explain", [{"role": "user", "content": "hello"}])
+
+        assert response.provider == "google"
+        assert response.model == "gemini-2.0-flash"
+
+        config.task_routing = {"poc": TaskRoute(provider="google", model="gemini-2.0-pro")}
+        response_poc = await router.execute_task("poc", [{"role": "user", "content": "hello"}])
+        assert response_poc.model == "gemini-2.0-pro"
