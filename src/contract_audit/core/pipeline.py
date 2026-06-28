@@ -440,13 +440,23 @@ class PipelineOrchestrator:
         priority_order = ["Critical", "High", "Medium"]
         processed_count = 0
 
+        from ..llm.context_slicer import ContextSlicer
+        slicer = ContextSlicer()
+
         for severity_str in priority_order:
             for finding in findings:
                 if finding.suppressed or finding.severity.value != severity_str:
                     continue
 
-                # Get source context
-                source_snippet = self._get_source_snippet(finding, context)
+                # Get source context (slicing with dependent contract skeletons)
+                try:
+                    source_snippet = slicer.get_sliced_context(finding, context)
+                except Exception as se:
+                    logger.debug(f"Context Slicing failed: {se}. Falling back to default snippet.")
+                    source_snippet = ""
+
+                if not source_snippet:
+                    source_snippet = self._get_source_snippet(finding, context)
 
                 try:
                     # Explain
