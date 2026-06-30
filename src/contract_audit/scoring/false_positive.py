@@ -150,6 +150,9 @@ class FalsePositiveReducer:
             file_key = f.locations[0].file if f.locations else "__unknown__"
             by_file[file_key].append(f)
 
+        from ..llm.context_slicer import ContextSlicer
+        slicer = ContextSlicer(context_window=self.context_window)
+
         for file_key, file_findings in by_file.items():
             # Build source context once per file
             src = context.contract_sources.get(file_key, "")
@@ -157,11 +160,17 @@ class FalsePositiveReducer:
 
             for finding in file_findings:
                 source_snippet = ""
-                for loc in finding.locations[:1]:
-                    if src_lines:
-                        start = max(0, loc.start_line - 1 - self.context_window)
-                        end = min(len(src_lines), loc.end_line + self.context_window)
-                        source_snippet = "\n".join(src_lines[start:end])
+                try:
+                    source_snippet = slicer.get_sliced_context(finding, context)
+                except Exception as se:
+                    logger.debug(f"Context Slicing failed during triage: {se}")
+
+                if not source_snippet:
+                    for loc in finding.locations[:1]:
+                        if src_lines:
+                            start = max(0, loc.start_line - 1 - self.context_window)
+                            end = min(len(src_lines), loc.end_line + self.context_window)
+                            source_snippet = "\n".join(src_lines[start:end])
 
                 try:
                     is_fp = await triage.classify(finding, source_snippet)
