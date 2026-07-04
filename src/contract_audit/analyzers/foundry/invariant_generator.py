@@ -132,6 +132,18 @@ def generate_invariant_tests(
         if re.search(pattern["detect"], source, re.IGNORECASE | re.DOTALL):
             applicable_tests.append(pattern)
 
+    # Extract custom invariants from Natspec comments
+    try:
+        from .invariant_extractor import InvariantExtractor
+        extractor = InvariantExtractor()
+        custom_invariants = extractor.extract_custom_invariants(source, contract_name)
+        applicable_tests.extend(custom_invariants)
+    except Exception as e:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            f"Failed to extract custom invariants for {contract_name}: {e}"
+        )
+
     if not applicable_tests:
         # Add a basic liveness invariant
         applicable_tests.append({
