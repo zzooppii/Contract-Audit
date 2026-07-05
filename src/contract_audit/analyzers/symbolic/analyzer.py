@@ -48,6 +48,9 @@ class SymbolicAnalyzer:
 
         for filename, file_contracts in contracts.items():
             for contract_name, contract_data in file_contracts.items():
+                # Invariant 또는 Test 계약인지 식별
+                is_invariant_test = "invariant" in contract_name.lower() or "test" in contract_name.lower()
+
                 bytecode = (
                     contract_data.get("evm", {})
                     .get("bytecode", {})
@@ -63,9 +66,14 @@ class SymbolicAnalyzer:
                         timeout=60,
                     )
                     for v in violations:
-                        findings.append(
-                            self._violation_to_finding(v, filename, contract_name, "hevm")
-                        )
+                        if is_invariant_test:
+                            findings.append(
+                                self._invariant_violation_to_finding(v, filename, contract_name, "hevm")
+                            )
+                        else:
+                            findings.append(
+                                self._violation_to_finding(v, filename, contract_name, "hevm")
+                            )
 
                 # Fall back to Mythril for deep analysis
                 elif self.mythril.is_available():
@@ -75,9 +83,14 @@ class SymbolicAnalyzer:
                             filename, source, timeout=120
                         )
                         for issue in issues:
-                            findings.append(
-                                self._mythril_to_finding(issue, filename, contract_name)
-                            )
+                            if is_invariant_test:
+                                findings.append(
+                                    self._invariant_mythril_to_finding(issue, filename, contract_name)
+                                )
+                            else:
+                                findings.append(
+                                    self._mythril_to_finding(issue, filename, contract_name)
+                                )
 
         logger.info(f"Symbolic execution found {len(findings)} findings")
         return findings
@@ -118,12 +131,14 @@ class SymbolicAnalyzer:
                     continue
 
                 try:
+                    func_name = (
+                        finding.locations[0].function
+                        if finding.locations
+                        else None
+                    )
+                    
+                    # Try hevm first
                     if self.hevm.is_available():
-                        func_name = (
-                            finding.locations[0].function
-                            if finding.locations
-                            else None
-                        )
                         sig = self._get_function_sig(func_name, contract_data)
                         violations = await self.hevm.run_symbolic(
                             bytecode=bytecode,
@@ -138,6 +153,22 @@ class SymbolicAnalyzer:
                                 + (f" via {sig}" if sig else "")
                             )
                             return True
+
+                    # Fall back to Mythril targeted verification
+                    if self.mythril.is_available():
+                        source = context.contract_sources.get(filename, "")
+                        if source:
+                            issues = await self.mythril.analyze_source(
+                                filename, source, timeout=60, function_name=func_name
+                            )
+                            if issues:
+                                finding.confidence = Confidence.HIGH
+                                finding.metadata["symbolic_verified"] = True
+                                logger.info(
+                                    f"Symbolic execution (Mythril) confirmed '{finding.title}'"
+                                    + (f" in {func_name}" if func_name else "")
+                                )
+                                return True
                 except Exception as e:
                     logger.debug(f"Symbolic verification failed: {e}")
 
@@ -222,4 +253,72 @@ class SymbolicAnalyzer:
                 )
             ],
             metadata=issue,
+        )
+
+    def _invariant_violation_to_finding(
+        self,
+        violation: dict[str, Any],
+        filename: str,
+        contract_name: str,
+        tool: str,
+    ) -> Finding:
+        """Convert a symbolic invariant violation to a Finding."""
+        return Finding(
+            title=f"DeFi Invariant Violation: {contract_name} assertion failed",
+            description=(
+                f"Symbolic execution ({tool}) successfully bypassed protocol constraints or assertions "
+                f"in invariant test contract `{contract_name}`.\n\n"
+                f"**Details:**\n{violation.get('details', '')}\n\n"
+                + (
+                    "Transaction trace to failure:\n" + "\n".join(violation.get("trace", [])[:20])
+                    if violation.get("trace")
+                    else ""
+                )
+            ),
+            severity=Severity.HIGH,
+            confidence=Confidence.HIGH,
+            category=FindingCategory.GOVERNANCE_ATTACK,
+            source=tool,
+            detector_name=f"{tool}-invariant-symbolic",
+            locations=[
+                SourceLocation(
+                    file=filename,
+                    start_line=1,
+                    end_line=1,
+                    contract=contract_name,
+                )
+            ],
+            metadata={"contract": contract_name, "violation": violation, "is_invariant": True},
+        )
+
+    def _invariant_mythril_to_finding(
+        self,
+        issue: dict[str, Any],
+        filename: str,
+        contract_name: str,
+    ) -> Finding:
+        """Convert a Mythril invariant issue to a Finding."""
+        loc = issue.get("location", {})
+        return Finding(
+            title=f"DeFi Invariant Violation (Mythril): {contract_name} assertion failed",
+            description=(
+                f"Mythril detected an assertion violation or exception path that violates business rules "
+                f"in test contract `{contract_name}`.\n\n"
+                f"**Description:**\n{issue.get('description', '')}\n\n"
+                f"**Transaction Sequence:**\n{issue.get('tx_sequence', 'None')}"
+            ),
+            severity=Severity.HIGH,
+            confidence=Confidence.HIGH,
+            category=FindingCategory.GOVERNANCE_ATTACK,
+            source="mythril",
+            detector_name="mythril-invariant-symbolic",
+            locations=[
+                SourceLocation(
+                    file=loc.get("file", filename),
+                    start_line=loc.get("line", 1),
+                    end_line=loc.get("line", 1),
+                    contract=contract_name,
+                )
+            ],
+            metadata={"contract": contract_name, "issue": issue, "is_invariant": True},
         )
