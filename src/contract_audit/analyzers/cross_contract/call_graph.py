@@ -7,6 +7,7 @@ cross-contract reentrancy and other interaction vulnerabilities.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 
 def _strip_comments(source: str) -> str:
@@ -206,25 +207,25 @@ class CallGraph:
     ) -> dict[str, list[tuple[str, str]]]:
         """AST 기반으로 각 계약별 외부 호출을 정밀 분석합니다."""
         from ...analyzers.ast_parser.visitors import walk_ast
-        
+
         all_contracts = set(inheritance.keys())
         contract_calls: dict[str, list[tuple[str, str]]] = {}
-        
+
         # 1. 먼저 계약 노드를 모두 찾습니다.
         contracts: list[dict[str, Any]] = []
         def find_contracts(node: dict[str, Any]) -> None:
             if node.get("nodeType") == "ContractDefinition":
                 contracts.append(node)
         walk_ast(ast, find_contracts)
-        
+
         for contract in contracts:
             cname = contract.get("name", "")
             if not cname:
                 continue
-                
+
             calls: list[tuple[str, str]] = []
             state_var_types: dict[str, str] = {}
-            
+
             # 해당 계약의 상태 변수 수집
             for subnode in contract.get("nodes", []):
                 if subnode.get("nodeType") == "VariableDeclaration" and subnode.get("stateVariable"):
@@ -235,13 +236,13 @@ class CallGraph:
                     type_name = type_str.replace("contract ", "").replace("interface ", "").strip() if type_str else ""
                     if type_name in all_contracts or type_name.startswith("I"):
                         state_var_types[var_name] = type_name
-            
+
             # 함수 정의들을 순회하면서 로컬 변수 및 외부 호출 분석
             for subnode in contract.get("nodes", []):
                 if subnode.get("nodeType") == "FunctionDefinition" and subnode.get("body"):
                     body = subnode["body"]
                     local_var_types = state_var_types.copy()
-                    
+
                     # 1) 로컬 변수 선언 수집
                     def collect_local_decls(n: dict[str, Any]) -> None:
                         if n.get("nodeType") == "VariableDeclarationStatement":
@@ -254,7 +255,7 @@ class CallGraph:
                                     if t_name in all_contracts or t_name.startswith("I"):
                                         local_var_types[vname] = t_name
                     walk_ast(body, collect_local_decls)
-                    
+
                     # 2) 외부 호출 분석
                     def find_calls(n: dict[str, Any]) -> None:
                         if n.get("nodeType") == "FunctionCall":
@@ -262,7 +263,7 @@ class CallGraph:
                             if expr.get("nodeType") == "MemberAccess":
                                 member_name = expr.get("memberName", "")
                                 inner_expr = expr.get("expression", {})
-                                
+
                                 # Case A: 인터페이스 캐스팅 직접 호출 - IToken(addr).transfer(...)
                                 if inner_expr.get("nodeType") == "FunctionCall" and inner_expr.get("kind") == "typeConversion":
                                     cast_expr = inner_expr.get("expression", {})
@@ -275,16 +276,16 @@ class CallGraph:
                                             # msg, block, tx 등 솔리디티 내장 객체는 건너뜀
                                             if t_name not in ('msg', 'block', 'tx', 'abi', 'type', 'super', 'this'):
                                                 calls.append((t_name, member_name))
-                                
+
                                 # Case B: 변수를 통한 호출 - t.transfer(...)
                                 elif inner_expr.get("nodeType") == "Identifier":
                                     vname = inner_expr.get("name", "")
                                     if vname in local_var_types:
                                         t_name = local_var_types[vname]
                                         calls.append((t_name, member_name))
-                                        
+
                     walk_ast(body, find_calls)
-            
+
             # 중복 제거
             unique_calls = []
             seen = set()
@@ -297,8 +298,8 @@ class CallGraph:
                 if (t, f) not in seen:
                     seen.add((t, f))
                     unique_calls.append((t, f))
-                    
+
             contract_calls[cname] = unique_calls
-            
+
         return contract_calls
 
