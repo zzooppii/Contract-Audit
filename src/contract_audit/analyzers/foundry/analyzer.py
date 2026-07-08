@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import shutil
+from pathlib import Path
 
 from ...core.exceptions import AnalyzerError
 from ...core.models import AuditContext, Finding
@@ -24,7 +25,7 @@ class FoundryAnalyzer:
 
     def __init__(self) -> None:
         # Files/dirs created by _ensure_foundry_project (cleaned up after forge runs)
-        self._scaffold_paths: list = []
+        self._scaffold_paths: list[Path] = []
 
     def is_available(self) -> bool:
         return shutil.which(FORGE_CMD) is not None
@@ -103,7 +104,7 @@ class FoundryAnalyzer:
             )
             try:
                 _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 proc.kill()
                 await proc.wait()
                 logger.warning("forge install timed out — harnesses may not compile")
@@ -157,7 +158,7 @@ class FoundryAnalyzer:
                     stdout, stderr = await asyncio.wait_for(
                         proc.communicate(), timeout=600  # 10 minute timeout
                     )
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     proc.kill()
                     await proc.wait()
                     logger.error("Foundry tests timed out after 10 minutes")
