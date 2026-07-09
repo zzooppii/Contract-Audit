@@ -125,7 +125,7 @@ def _get_default_value_for_abi_type(
         if match:
             base_type = match.group(1)
             size = int(match.group(2))
-            
+
             # 배열 요소에 대해서는 모킹 주소를 매핑하지 않고 일반 디폴트 값으로 지정
             if base_type == "address":
                 default_val = "address(0)"
@@ -145,7 +145,7 @@ def _get_default_value_for_abi_type(
         inner = type_[1:-1]
         parts = []
         depth = 0
-        current = []
+        current: list[str] = []
         for char in inner:
             if char == "," and depth == 0:
                 parts.append("".join(current).strip())
@@ -158,7 +158,7 @@ def _get_default_value_for_abi_type(
                 current.append(char)
         if current:
             parts.append("".join(current).strip())
-            
+
         component_vals = []
         for part in parts:
             dummy_inp = {"type": part, "name": raw_name}
@@ -172,7 +172,7 @@ def _get_default_value_for_abi_type(
         for comp in components:
             val = _get_default_value_for_abi_type(comp, contract_name, mock_counter_ref, mocks_needed, setup_lines)
             component_vals.append(val)
-        
+
         internal_type = inp.get("internalType", "")
         if internal_type.startswith("struct "):
             struct_type = internal_type[7:]
@@ -180,7 +180,7 @@ def _get_default_value_for_abi_type(
             if "." not in struct_type:
                 struct_type = f"{contract_name}.{struct_type}"
             return f"{struct_type}({', '.join(component_vals)})"
-        
+
         # 이름 없는 튜플인 경우, 튜플 리터럴 리턴
         return f"({', '.join(component_vals)})"
     else:
