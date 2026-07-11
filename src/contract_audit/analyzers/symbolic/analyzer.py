@@ -136,7 +136,7 @@ class SymbolicAnalyzer:
                         if finding.locations
                         else None
                     )
-                    
+
                     # Try hevm first
                     if self.hevm.is_available():
                         sig = self._get_function_sig(func_name, contract_data)
