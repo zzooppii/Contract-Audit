@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -36,7 +36,7 @@ class AuditCache:
             return
 
         try:
-            with open(self.cache_file, "r", encoding="utf-8") as f:
+            with open(self.cache_file, encoding="utf-8") as f:
                 self.data = json.load(f)
             logger.info(f"Loaded incremental audit cache from {self.cache_file}")
         except Exception as e:
