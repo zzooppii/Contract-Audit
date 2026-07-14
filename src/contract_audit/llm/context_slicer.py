@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
 
 from ..core.models import AuditContext, Finding
 
@@ -30,7 +29,7 @@ class ContextSlicer:
         """Finding과 연관성이 높은 최소한의 소스 코드 슬라이스를 마크다운 형태로 반환합니다.
 
         - Finding이 발생한 파일: 취약점 행(line) 기준 앞뒤로 50줄의 상세 본문을 유지.
-        - 직접 임포트된 파일들: 함수 바디를 제거하고 상태 변수 및 함수 선언부(인터페이스 뼈대)만 남김.
+        - 직접 임포트된 파일들: 함수 바디를 제거하고 상태 변수 및 선언부만 남김.
         """
         if not finding.locations:
             return ""
@@ -53,7 +52,7 @@ class ContextSlicer:
         target_src = context.contract_sources[matched_target]
         start_line = finding.locations[0].start_line
         end_line = finding.locations[0].end_line
-        
+
         target_slice = self._slice_target_file(
             target_src, start_line, end_line, matched_target
         )
@@ -67,12 +66,13 @@ class ContextSlicer:
 
         # 4. 하나의 컨텍스트 문자열로 병합
         merged_context = "\n\n".join(slices)
-        
+
         # 병합된 코드가 여전히 너무 길 경우, 세부적인 라인 압축 수행
         merged_lines = merged_context.splitlines()
         if len(merged_lines) > max_total_lines:
             logger.info(
-                f"Merged context size ({len(merged_lines)} lines) exceeds threshold. Slicing further."
+                f"Merged context size ({len(merged_lines)} lines) "
+                "exceeds threshold. Slicing further."
             )
             # 타겟 영역만 더 극적으로 한정
             target_slice_strict = self._slice_target_file(
@@ -103,7 +103,7 @@ class ContextSlicer:
         """취약점 주변 줄번호 영역을 중심으로 코드를 슬라이싱합니다."""
         lines = source.splitlines()
         window = 20 if strict else self.context_window
-        
+
         # 1-based index 보정
         start_idx = max(0, start - 1 - window)
         end_idx = min(len(lines), end + window)
@@ -111,12 +111,12 @@ class ContextSlicer:
         sliced_lines = []
         if start_idx > 0:
             sliced_lines.append(f"// ... (이전 소스 코드 생략 - {filename}) ...")
-            
+
         for i in range(start_idx, end_idx):
             line_num = i + 1
             marker = ">>>" if start <= line_num <= end else "   "
             sliced_lines.append(f"{marker} {line_num:4d} | {lines[i]}")
-            
+
         if end_idx < len(lines):
             sliced_lines.append(f"// ... (이후 소스 코드 생략 - {filename}) ...")
 
@@ -126,17 +126,22 @@ class ContextSlicer:
     def _generate_contract_skeleton(self, source: str, filename: str) -> str:
         """함수 바디를 비우고 상태 변수, 이벤트, 함수 시그니처만 남기는 스켈레톤 추출."""
         lines = source.splitlines()
-        skeleton_lines = []
-        
+        skeleton_lines: list[str] = []
+
         # 함수 바디 매칭 및 생성을 위한 괄호 깊이 추적 상태 기계
         in_function = False
         bracket_depth = 0
-        
+
         for line in lines:
             stripped = line.strip()
-            
+
             # 주석 및 빈줄 유지
-            if not stripped or stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*"):
+            is_comment = (
+                stripped.startswith("//")
+                or stripped.startswith("/*")
+                or stripped.startswith("*")
+            )
+            if not stripped or is_comment:
                 # 단, 너무 많은 빈줄은 생략
                 if skeleton_lines and not skeleton_lines[-1]:
                     continue
@@ -146,11 +151,12 @@ class ContextSlicer:
             # 함수 정의의 시작 부분 탐색
             if not in_function:
                 if re.match(r'\b(function|constructor|fallback|receive)\b', stripped):
-                    # 만약 한 줄짜리 함수 선언이고 끝이 세미콜론(인터페이스/추상메소드)이면 그대로 포함
+                    # 만약 한 줄짜리 함수 선언이고 끝이 세미콜론
+                    # (인터페이스/추상메소드)이면 그대로 포함
                     if stripped.endswith(";"):
                         skeleton_lines.append(line)
                         continue
-                    
+
                     # 중괄호가 열렸는지 확인
                     skeleton_lines.append(line)
                     if "{" in stripped:
@@ -178,8 +184,11 @@ class ContextSlicer:
                     skeleton_lines.append(f"{indent}}}")
                     in_function = False
                     bracket_depth = 0
-                    
+
         code_block = "\n".join(skeleton_lines)
         # 빈 줄 정돈
         code_block = re.sub(r'\n{3,}', '\n\n', code_block)
-        return f"### Dependent Contract Interface Skeleton: {filename}\n```solidity\n{code_block}\n```"
+        return (
+            f"### Dependent Contract Interface Skeleton: {filename}\n"
+            f"```solidity\n{code_block}\n```"
+        )
