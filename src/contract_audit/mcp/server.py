@@ -156,7 +156,7 @@ def create_server() -> Server:
     """Create and configure the MCP server."""
     server = Server("contract-audit")
 
-    @server.list_tools()
+    @server.list_tools()  # type: ignore
     async def list_tools() -> list[Tool]:
         return [
             Tool(
