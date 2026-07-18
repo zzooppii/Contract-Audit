@@ -5,7 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from contract_audit.core.cache import AuditCache, calculate_hash
-from contract_audit.core.models import Finding, FindingCategory, Severity, Confidence, SourceLocation
+from contract_audit.core.models import (
+    Confidence,
+    Finding,
+    FindingCategory,
+    Severity,
+    SourceLocation,
+)
 
 
 def test_hash_calculation():
