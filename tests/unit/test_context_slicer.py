@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-import pytest
 
-from contract_audit.core.models import AuditContext, Confidence, Finding, FindingCategory, Severity, SourceLocation
+from contract_audit.core.models import (
+    AuditContext,
+    Confidence,
+    Finding,
+    FindingCategory,
+    Severity,
+    SourceLocation,
+)
 from contract_audit.llm.context_slicer import ContextSlicer
 
 
@@ -41,11 +47,11 @@ contract Token {
 """
     slicer = ContextSlicer()
     skeleton = slicer._generate_contract_skeleton(source_code, "Token.sol")
-    
+
     # 뼈대에 상태 변수와 선언부는 남아 있어야 함
     assert "string public name" in skeleton
     assert "event Transfer" in skeleton
-    
+
     # 함수 바디 내부의 비즈니스 로직(대입문, require 등)은 지워지고 생략 주석이 있어야 함
     assert "balanceOf[msg.sender] -= amount;" not in skeleton
     assert "balanceOf[msg.sender] = initialSupply;" not in skeleton
@@ -54,7 +60,7 @@ contract Token {
 
 
 def test_context_slicer_get_sliced_context():
-    """Finding이 위치한 타겟 파일의 윈도우 코드와 임포트된 의존 계약 스켈레톤이 정상 결합되는지 테스트."""
+    """타겟 파일 윈도우 코드와 의존 계약 스켈레톤의 결합 기능 테스트."""
     vault_code = """
 pragma solidity ^0.8.20;
 
@@ -84,7 +90,7 @@ contract Token {
     }
 }
 """
-    
+
     from contract_audit.core.models import AuditConfig
     context = AuditContext(
         project_path=Path("/tmp"),
@@ -97,7 +103,7 @@ contract Token {
     context.import_graph = {
         "src/Vault.sol": ["src/Token.sol"]
     }
-    
+
     finding = Finding(
         title="Unchecked Return Value",
         description="Unchecked return value in deposit",
@@ -116,16 +122,16 @@ contract Token {
             )
         ]
     )
-    
+
     slicer = ContextSlicer(context_window=3)
     sliced_context = slicer.get_sliced_context(finding, context)
-    
+
     # 타겟 파일명이 표시되어야 함
     assert "src/Vault.sol" in sliced_context
     # 슬라이스된 타겟 코드가 들어있어야 함 (윈도우 3줄이므로 12~18라인)
     assert "deposit" in sliced_context
     assert "token.transfer" in sliced_context
-    
+
     # 의존 계약 스켈레톤도 결합되어야 함
     assert "src/Token.sol" in sliced_context
     assert "contract Token" in sliced_context
