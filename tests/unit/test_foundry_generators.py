@@ -298,7 +298,11 @@ class TestHarnessWithConstructorArgs:
     def test_targeted_harness_with_constructor_and_source_path(self, tmp_path):
         from contract_audit.analyzers.foundry.harness_generator import generate_targeted_harness
         from contract_audit.core.models import (
-            Confidence, Finding, FindingCategory, Severity, SourceLocation,
+            Confidence,
+            Finding,
+            FindingCategory,
+            Severity,
+            SourceLocation,
         )
 
         finding = Finding(
