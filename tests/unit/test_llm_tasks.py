@@ -146,9 +146,8 @@ class TestFalsePositiveReducerEnhanced:
 class TestLLMRouter:
     @pytest.mark.asyncio
     async def test_intelligent_default_routing(self):
-        from contract_audit.llm.router import LLMRouter
         from contract_audit.core.config import LLMConfig
-        from contract_audit.auth.token_store import TokenStore
+        from contract_audit.llm.router import LLMRouter
 
         config = LLMConfig()
         mock_pcfg = MagicMock()
@@ -185,9 +184,8 @@ class TestLLMRouter:
 
     @pytest.mark.asyncio
     async def test_budget_preservation_mode(self):
-        from contract_audit.llm.router import LLMRouter
         from contract_audit.core.config import LLMConfig, TaskRoute
-        from contract_audit.auth.token_store import TokenStore
+        from contract_audit.llm.router import LLMRouter
 
         config = LLMConfig()
         mock_pcfg = MagicMock()
