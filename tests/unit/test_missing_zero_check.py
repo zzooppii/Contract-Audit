@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import pytest
 
 from contract_audit.analyzers.ast_parser.analyzer import ASTAnalyzer
-from contract_audit.core.models import Severity, FindingCategory
+from contract_audit.core.models import FindingCategory, Severity
 from contract_audit.utils.solc import compile_contracts, extract_ast_trees
 
 
