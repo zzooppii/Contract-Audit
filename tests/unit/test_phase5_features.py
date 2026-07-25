@@ -1,18 +1,18 @@
-"""Unit tests for Phase 5 features: Smart Fuzzing Harness Healing & AST-based Call Graph Analysis."""
+"""Unit tests for Phase 5 features."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+
 import pytest
 
-from contract_audit.analyzers.foundry.harness_generator import generate_fuzz_harness
 from contract_audit.analyzers.cross_contract.call_graph import CallGraph
+from contract_audit.analyzers.foundry.harness_generator import generate_fuzz_harness
 from contract_audit.utils.solc import compile_contracts, extract_ast_trees
 
 
 def test_struct_constructor_harness_generation(tmp_path: Path):
-    """구조체 및 튜플 타입 생성자 파라미터가 있을 때, 하네스를 스킵 없이 치유하여 정상 생성하는지 테스트."""
+    """구조체 및 튜플 생성자 파라미터가 있을 때 하네스를 치유하여 생성하는지 테스트."""
     # Vault.sol의 구조체 정의가 포함된 ABI 형식 재현
     ctor_abi = [
         {
@@ -26,17 +26,17 @@ def test_struct_constructor_harness_generation(tmp_path: Path):
             ]
         }
     ]
-    
+
     result_path = generate_fuzz_harness(
         "Vault",
         [],
         tmp_path,
         constructor_abi=ctor_abi
     )
-    
+
     assert result_path != Path("")
     assert result_path.exists()
-    
+
     content = result_path.read_text()
     # 생성된 코드 내부에 구조체 캐스팅 디폴트 값이 명시되어 있는지 확인
     assert "Vault.Config(" in content
@@ -48,7 +48,7 @@ def test_struct_constructor_harness_generation(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_ast_based_cross_contract_call_graph(tmp_path: Path):
-    """AST 정보를 활용해 인터페이스 캐스팅 및 로컬 변수 타입 외부 호출을 정확하게 추적하는지 테스트."""
+    """AST 정보를 활용해 외부 호출을 추적하는지 테스트."""
     from contract_audit.utils.solc import solc_available
     if not solc_available():
         pytest.skip("solc not installed")
@@ -84,18 +84,18 @@ contract Pool {
     sources = {"Pool.sol": token_code}
     output = await compile_contracts(tmp_path, sources, "auto")
     ast_trees = extract_ast_trees(output)
-    
+
     assert "Pool.sol" in ast_trees
-    
+
     # 상속 정보 (가장 단순화된 맵)
     inheritance_map = {"Pool": [], "IToken": []}
-    
+
     builder = CallGraph()
     call_graph = builder.build(sources, inheritance_map, ast_trees)
-    
+
     # Pool에서 IToken으로의 호출이 정상적으로 잡혔는지 확인
     assert "Pool" in call_graph
     calls = call_graph["Pool"]
-    
+
     # IToken.transfer 호출이 정상 추출되었는지 검증
     assert ("IToken", "transfer") in calls
