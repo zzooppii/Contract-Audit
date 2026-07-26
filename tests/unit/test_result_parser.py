@@ -6,7 +6,6 @@ from contract_audit.analyzers.foundry.result_parser import (
     _classify_failure,
     _extract_source_location,
     _format_counterexample,
-    _failure_to_finding,
     parse_foundry_results,
 )
 from contract_audit.core.models import FindingCategory, Severity
