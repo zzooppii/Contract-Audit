@@ -6,15 +6,19 @@ import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from ..auth.token_store import TokenStore
 from .routes import audit, auth, reports
 
 logger = logging.getLogger(__name__)
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 @asynccontextmanager
@@ -62,20 +66,45 @@ def create_app() -> FastAPI:
     app.include_router(audit.router)
     app.include_router(reports.router)
 
-    @app.get("/", response_class=HTMLResponse)
-    async def dashboard() -> str:
-        """Simple dashboard homepage."""
-        return """
-        <!DOCTYPE html>
-        <html>
-        <head><title>contract-audit Dashboard</title></head>
-        <body>
-            <h1>contract-audit Web Dashboard</h1>
-            <p><a href="/auth/login">Login with Google</a></p>
-            <p><a href="/docs">API Documentation</a></p>
-        </body>
-        </html>
-        """
+    # Mock login for developer local testing (bypasses Google OAuth)
+    @app.get("/auth/dev-login")
+    async def dev_login(request: Request) -> RedirectResponse:
+        """Inject a dev user into the session for local testing."""
+        request.session["user"] = {
+            "email": "dev@contractaudit.local",
+            "name": "Dev User",
+            "picture": "https://lh3.googleusercontent.com/a/default-user=s96-c",
+        }
+        logger.info("Developer local login session established")
+        return RedirectResponse(url="/")
+
+    # Serve index.html at root
+    @app.get("/")
+    async def dashboard() -> FileResponse:
+        """Serve the main dashboard Single Page Application."""
+        index_path = STATIC_DIR / "index.html"
+        if not index_path.exists():
+            # If assets haven't been created yet, return simple placeholder
+            from fastapi.responses import HTMLResponse
+            return HTMLResponse(
+                """
+                <!DOCTYPE html>
+                <html>
+                <head><title>contract-audit Dashboard</title></head>
+                <body style="font-family: sans-serif; text-align: center; padding-top: 100px;">
+                    <h1>contract-audit Web Dashboard</h1>
+                    <p>Static files are mounting, but index.html is missing.</p>
+                    <p><a href="/auth/dev-login">Dev Login (Bypass Auth)</a></p>
+                </body>
+                </html>
+                """
+            )
+        return FileResponse(index_path)
+
+    # Mount static directory for CSS/JS
+    if not STATIC_DIR.exists():
+        STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/health")
     async def health() -> dict[str, str]:
