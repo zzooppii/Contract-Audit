@@ -23,6 +23,15 @@ from .utils import extract_functions, strip_comments, strip_interfaces
 logger = logging.getLogger(__name__)
 
 
+def _get_line_number(source: str, byte_offset: int) -> int:
+    """Convert byte offset to a 1-based line number."""
+    if not source:
+        return 1
+    encoded = source.encode('utf-8')
+    target_slice = encoded[:byte_offset]
+    return target_slice.decode('utf-8', errors='ignore').count('\n') + 1
+
+
 class FrontrunDetector:
     """Detects front-running vulnerabilities."""
 
@@ -33,17 +42,130 @@ class FrontrunDetector:
     async def detect(self, context: AuditContext) -> list[Finding]:
         findings: list[Finding] = []
 
+        has_ast = context.ast_trees and len(context.ast_trees) > 0
+
         for filename, source in context.contract_sources.items():
             clean = strip_comments(source)
             clean = strip_interfaces(clean)
             functions = extract_functions(clean)
 
-            findings.extend(self._check_missing_slippage(filename, functions))
+            if has_ast and filename in context.ast_trees:
+                ast = context.ast_trees[filename]
+                findings.extend(self._check_missing_slippage_ast(filename, ast, source))
+            else:
+                findings.extend(self._check_missing_slippage(filename, functions))
+
             findings.extend(self._check_missing_deadline(filename, functions))
             findings.extend(self._check_commit_reveal_absence(filename, clean, functions))
             findings.extend(self._check_sandwich_vulnerable(filename, functions))
 
         logger.info(f"Frontrun detector found {len(findings)} findings")
+        return findings
+
+    def _check_missing_slippage_ast(
+        self, filename: str, ast: dict[str, Any], source: str
+    ) -> list[Finding]:
+        """Detect missing or unused slippage parameters in swap/trade functions using AST."""
+        findings: list[Finding] = []
+        from ..analyzers.ast_parser.visitors import walk_ast
+
+        swap_keywords = ['swap', 'trade', 'exchange', 'sell', 'buy']
+        slippage_param_keywords = ['min', 'slippage', 'return', 'out']
+
+        functions = []
+        def collect_functions(node: dict[str, Any]) -> None:
+            if node.get("nodeType") == "FunctionDefinition":
+                functions.append(node)
+        walk_ast(ast, collect_functions)
+
+        for func in functions:
+            if func.get("stateMutability") in ("view", "pure") or not func.get("body"):
+                continue
+
+            func_name = func.get("name", "")
+            name_lower = func_name.lower()
+            if not any(kw in name_lower for kw in swap_keywords):
+                continue
+
+            params = func.get("parameters", {}).get("parameters", [])
+            slippage_params = []
+            for p in params:
+                p_name = p.get("name", "")
+                p_name_lower = p_name.lower()
+                if any(kw in p_name_lower for kw in slippage_param_keywords):
+                    slippage_params.append(p_name)
+
+            src_parts = func.get("src", "").split(":")
+            offset = int(src_parts[0]) if src_parts else 0
+            line = _get_line_number(source, offset)
+
+            if not slippage_params:
+                findings.append(
+                    Finding(
+                        title=f"Missing Slippage Protection: {func_name}() [AST]",
+                        description=(
+                            f"`{func_name}()` performs a swap/trade but lacks a "
+                            "`minAmountOut` or slippage parameter. This allows MEV bots "
+                            "to sandwich the transaction for profit.\n\n"
+                            "**Fix:** Add a `minAmountOut` parameter and validate the "
+                            "received amount meets the minimum."
+                        ),
+                        severity=Severity.HIGH,
+                        confidence=Confidence.HIGH,
+                        category=FindingCategory.FRONT_RUNNING,
+                        source=self.name,
+                        detector_name="missing-slippage",
+                        locations=[
+                            SourceLocation(
+                                file=filename,
+                                start_line=line,
+                                end_line=line,
+                                function=func_name,
+                            )
+                        ],
+                    )
+                )
+            else:
+                body = func.get("body", {})
+                used_params = set()
+
+                def check_param_usage(n: dict[str, Any]) -> None:
+                    if n.get("nodeType") == "Identifier":
+                        name = n.get("name", "")
+                        if name in slippage_params:
+                            used_params.add(name)
+                walk_ast(body, check_param_usage)
+
+                unused_params = set(slippage_params) - used_params
+                if unused_params:
+                    unused_str = ", ".join(f"`{p}`" for p in unused_params)
+                    findings.append(
+                        Finding(
+                            title=f"Unused Slippage Parameter: {func_name}() [AST]",
+                            description=(
+                                f"`{func_name}()` has slippage parameter(s) {unused_str} "
+                                "but they are never referenced or validated inside the function body. "
+                                "This bypasses slippage controls, allowing front-running.\n\n"
+                                "**Fix:** Implement validation checks (e.g. `require(amountReceived >= minAmountOut)`) "
+                                "or pass the parameter to nested DEX calls."
+                            ),
+                            severity=Severity.HIGH,
+                            confidence=Confidence.HIGH,
+                            category=FindingCategory.FRONT_RUNNING,
+                            source=self.name,
+                            detector_name="unused-slippage-parameter",
+                            locations=[
+                                SourceLocation(
+                                    file=filename,
+                                    start_line=line,
+                                    end_line=line,
+                                    function=func_name,
+                                )
+                            ],
+                            metadata={"unused_parameters": list(unused_params)},
+                        )
+                    )
+
         return findings
 
     def _check_missing_slippage(
