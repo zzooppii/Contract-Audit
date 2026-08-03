@@ -50,6 +50,29 @@ SAFE_CAST_PATTERNS = [
 ]
 
 
+def _get_pragma_version(source: str) -> str | None:
+    match = re.search(r'pragma\s+solidity\s+([^;]+);', source)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def _is_version_at_least_080(version_str: str | None) -> bool:
+    if not version_str:
+        return True  # Default to modern safe environment
+    clean = re.sub(r'[^\d.]', '', version_str)
+    parts = clean.split('.')
+    if len(parts) >= 2:
+        try:
+            major = int(parts[0])
+            minor = int(parts[1])
+            if major > 0 or (major == 0 and minor >= 8):
+                return True
+        except ValueError:
+            pass
+    return False
+
+
 class IntegerDetector:
     """Detects integer/arithmetic vulnerabilities."""
 
@@ -65,8 +88,16 @@ class IntegerDetector:
             clean = strip_interfaces(clean)
             lines = clean.splitlines()
 
+            version_str = _get_pragma_version(source)
+            is_080 = _is_version_at_least_080(version_str)
+
             findings.extend(self._check_unsafe_downcast(filename, clean, lines))
-            findings.extend(self._check_unchecked_overflow(filename, lines))
+            
+            if is_080:
+                findings.extend(self._check_unchecked_overflow(filename, lines))
+            else:
+                findings.extend(self._check_missing_safemath_pre_080(filename, clean, lines))
+
             findings.extend(self._check_division_before_multiplication(filename, lines))
             findings.extend(self._check_zero_division(filename, clean, lines))
 
@@ -197,6 +228,55 @@ class IntegerDetector:
                             )
                         )
                         break  # One finding per unchecked block
+
+        return findings
+
+    def _check_missing_safemath_pre_080(
+        self, filename: str, source: str, lines: list[str]
+    ) -> list[Finding]:
+        """Detect missing SafeMath usage in older solidity (<0.8.0) compiler versions."""
+        findings: list[Finding] = []
+
+        uses_safemath = "SafeMath" in source
+        if uses_safemath:
+            return findings
+
+        for i, line in enumerate(lines):
+            if re.search(r'(\+|-|\*)\s*\w+', line):
+                if re.search(r'\b\w+\s*\+\+|^\s*\+\+\w+|\b\w+\s*--|^\s*--\w+', line):
+                    continue
+                if re.search(r'\bi\s*\+=\s*1\b|\bi\s*\+\+', line):
+                    continue
+
+                has_variable_op = bool(re.search(
+                    r'\b\w+\s*[\+\-\*]\s*\w+',
+                    line
+                ))
+                if has_variable_op and not re.search(r'^\s*\d+\s*[\+\-\*]\s*\d+', line):
+                    findings.append(
+                        Finding(
+                            title="Missing SafeMath for <0.8.0 Solidity",
+                            description=(
+                                "Arithmetic operation detected in a contract using a compiler version <0.8.0 "
+                                "without using SafeMath library. This makes the arithmetic operations vulnerable "
+                                "to overflow/underflow attacks.\n\n"
+                                "**Fix:** Use OpenZeppelin's `SafeMath` library for arithmetic operations."
+                            ),
+                            severity=Severity.HIGH,
+                            confidence=Confidence.MEDIUM,
+                            category=FindingCategory.ARITHMETIC,
+                            source=self.name,
+                            detector_name="missing-safemath",
+                            locations=[
+                                SourceLocation(
+                                    file=filename,
+                                    start_line=i + 1,
+                                    end_line=i + 1,
+                                )
+                            ],
+                        )
+                    )
+                    break  # Limit to one finding per file
 
         return findings
 
