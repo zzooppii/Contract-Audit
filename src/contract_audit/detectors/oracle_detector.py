@@ -48,6 +48,15 @@ TWAP_INDICATORS = {
 }
 
 
+def _get_line_number(source: str, byte_offset: int) -> int:
+    """Convert byte offset to a 1-based line number."""
+    if not source:
+        return 1
+    encoded = source.encode('utf-8')
+    target_slice = encoded[:byte_offset]
+    return target_slice.decode('utf-8', errors='ignore').count('\n') + 1
+
+
 class OracleDetector:
     """Detects oracle manipulation vulnerabilities."""
 
@@ -60,14 +69,142 @@ class OracleDetector:
         findings: list[Finding] = []
 
         max_staleness = context.config.oracle_max_staleness_seconds
+        has_ast = context.ast_trees and len(context.ast_trees) > 0
 
         for filename, source in context.contract_sources.items():
-            findings.extend(self._check_chainlink_staleness(filename, source, max_staleness))
+            if has_ast and filename in context.ast_trees:
+                ast = context.ast_trees[filename]
+                findings.extend(self._check_chainlink_staleness_ast(filename, ast, source, max_staleness))
+            else:
+                findings.extend(self._check_chainlink_staleness(filename, source, max_staleness))
+
             findings.extend(self._check_uniswap_spot_price(filename, source))
             findings.extend(self._check_round_completeness(filename, source))
             findings.extend(self._check_oracle_decimals(filename, source))
 
         logger.info(f"Oracle detector found {len(findings)} findings")
+        return findings
+
+    def _check_chainlink_staleness_ast(
+        self, filename: str, ast: dict[str, Any], source: str, max_staleness: int
+    ) -> list[Finding]:
+        """Check for Chainlink price reads without staleness validation using AST."""
+        findings = []
+        from ..analyzers.ast_parser.visitors import walk_ast
+
+        functions = []
+        def collect_functions(node: dict[str, Any]) -> None:
+            if node.get("nodeType") == "FunctionDefinition":
+                functions.append(node)
+        walk_ast(ast, collect_functions)
+
+        for func in functions:
+            body = func.get("body")
+            if not body:
+                continue
+
+            func_name = func.get("name", "")
+            chainlink_calls = []
+
+            def find_chainlink_calls(n: dict[str, Any]) -> None:
+                if n.get("nodeType") == "FunctionCall":
+                    expr = n.get("expression", {})
+                    if expr.get("nodeType") == "MemberAccess":
+                        member = expr.get("memberName", "")
+                        if member in CHAINLINK_FUNCTIONS:
+                            chainlink_calls.append((n, member))
+            walk_ast(body, find_chainlink_calls)
+
+            for call_node, fn_name in chainlink_calls:
+                src_parts = call_node.get("src", "").split(":")
+                offset = int(src_parts[0]) if src_parts else 0
+                line = _get_line_number(source, offset)
+
+                bound_var_names = []
+
+                def find_binding_statement(parent_node: dict[str, Any]) -> None:
+                    if parent_node.get("nodeType") == "VariableDeclarationStatement":
+                        # Checks if the initialization node matches the target function call node
+                        init_val = parent_node.get("initialValue", {})
+                        is_match = False
+                        if init_val:
+                            if init_val.get("id") == call_node.get("id"):
+                                is_match = True
+                            elif init_val.get("nodeType") == "TupleExpression":
+                                # Handle calls nested inside a tuple conversion or assignment
+                                components = init_val.get("components", [])
+                                for comp in components:
+                                    if comp and comp.get("id") == call_node.get("id"):
+                                        is_match = True
+
+                        if is_match:
+                            decls = parent_node.get("declarations", [])
+                            # For latestRoundData, 4th element (index 3) is updatedAt
+                            if len(decls) > 3 and fn_name == "latestRoundData":
+                                target_decl = decls[3]
+                                if target_decl and target_decl.get("name"):
+                                    bound_var_names.append(target_decl.get("name"))
+                            else:
+                                for decl in decls:
+                                    if decl and decl.get("name"):
+                                        bound_var_names.append(decl.get("name"))
+                
+                walk_ast(body, find_binding_statement)
+
+                has_staleness = False
+                if bound_var_names:
+                    def verify_staleness_usage(n: dict[str, Any]) -> None:
+                        nonlocal has_staleness
+                        if n.get("nodeType") == "BinaryOperation":
+                            left = n.get("leftExpression", {})
+                            right = n.get("rightExpression", {})
+                            l_name = left.get("name", "")
+                            r_name = right.get("name", "")
+                            
+                            if l_name in bound_var_names or r_name in bound_var_names:
+                                has_staleness = True
+                            
+                            def check_nested_member(expr: dict[str, Any]) -> bool:
+                                if expr.get("nodeType") == "MemberAccess":
+                                    return expr.get("memberName") in bound_var_names or check_nested_member(expr.get("expression", {}))
+                                return False
+                            if check_nested_member(left) or check_nested_member(right):
+                                has_staleness = True
+
+                    walk_ast(body, verify_staleness_usage)
+
+                if not has_staleness:
+                    findings.append(
+                        Finding(
+                            title=f"Chainlink Oracle: Missing Staleness Check ({fn_name}) [AST]",
+                            description=(
+                                f"`{fn_name}()` is called in `{func_name}()` at line {line} without validating "
+                                "`updatedAt` for staleness. "
+                                "If the oracle stops updating, stale prices could be used, "
+                                f"enabling price manipulation attacks.\n\n"
+                                "**Fix:**\n"
+                                "```solidity\n"
+                                "(, int256 price, , uint256 updatedAt,) = oracle.latestRoundData();\n"
+                                f"require(block.timestamp - updatedAt <= {max_staleness}, 'Stale price');\n"
+                                "```"
+                            ),
+                            severity=Severity.HIGH,
+                            confidence=Confidence.HIGH,
+                            category=FindingCategory.ORACLE_MANIPULATION,
+                            source=self.name,
+                            detector_name="chainlink-staleness",
+                            locations=[
+                                SourceLocation(
+                                    file=filename,
+                                    start_line=line,
+                                    end_line=line,
+                                    function=func_name,
+                                )
+                            ],
+                            metadata={"oracle_function": fn_name, "max_staleness": max_staleness},
+                        )
+                    )
+
         return findings
 
     def _check_chainlink_staleness(
