@@ -54,6 +54,15 @@ REENTRANCY_GUARD_PATTERNS = [
 ]
 
 
+def _get_line_number(source: str, byte_offset: int) -> int:
+    """Convert byte offset to a 1-based line number."""
+    if not source:
+        return 1
+    encoded = source.encode('utf-8')
+    target_slice = encoded[:byte_offset]
+    return target_slice.decode('utf-8', errors='ignore').count('\n') + 1
+
+
 class ReentrancyDetector:
     """Detects reentrancy vulnerabilities in Solidity contracts."""
 
@@ -65,12 +74,19 @@ class ReentrancyDetector:
         """Run all reentrancy checks on contract sources."""
         findings: list[Finding] = []
 
+        has_ast = context.ast_trees and len(context.ast_trees) > 0
+
         for filename, source in context.contract_sources.items():
             clean = strip_comments(source)
             clean = strip_interfaces(clean)
             functions = extract_functions(clean)
 
-            findings.extend(self._check_cei_violation(filename, functions))
+            if has_ast and filename in context.ast_trees:
+                ast = context.ast_trees[filename]
+                findings.extend(self._check_cei_violation_ast(filename, ast, source))
+            else:
+                findings.extend(self._check_cei_violation(filename, functions))
+
             findings.extend(self._check_cross_function_reentrancy(filename, functions))
             findings.extend(self._check_missing_reentrancy_guard(filename, functions))
             findings.extend(self._check_read_only_reentrancy(filename, clean, functions))
@@ -151,6 +167,134 @@ class ReentrancyDetector:
                             )
                         )
                         break  # One finding per function
+
+        return findings
+
+    def _check_cei_violation_ast(
+        self, filename: str, ast: dict[str, Any], source: str
+    ) -> list[Finding]:
+        """Detect CEI violations using exact AST node sequencing."""
+        findings: list[Finding] = []
+        from ..analyzers.ast_parser.visitors import walk_ast
+
+        contracts = []
+        def collect_contracts(node: dict[str, Any]) -> None:
+            if node.get("nodeType") == "ContractDefinition":
+                contracts.append(node)
+        walk_ast(ast, collect_contracts)
+
+        for contract in contracts:
+            state_vars = set()
+            for subnode in contract.get("nodes", []):
+                if subnode.get("nodeType") == "VariableDeclaration" and subnode.get("stateVariable"):
+                    name = subnode.get("name", "")
+                    if name:
+                        state_vars.add(name)
+
+            for subnode in contract.get("nodes", []):
+                if subnode.get("nodeType") == "FunctionDefinition" and subnode.get("body"):
+                    func_name = subnode.get("name", "")
+                    body = subnode["body"]
+
+                    external_calls = []
+                    state_writes = []
+
+                    def find_calls_and_writes(n: dict[str, Any]) -> None:
+                        # Find external calls (e.g. call, transfer, send, safeTransfer, safeTransferFrom)
+                        if n.get("nodeType") == "FunctionCall":
+                            expr = n.get("expression", {})
+                            is_ext = False
+                            if expr.get("nodeType") == "MemberAccess":
+                                member = expr.get("memberName", "")
+                                if member in ("call", "transfer", "send", "safeTransfer", "safeTransferFrom"):
+                                    is_ext = True
+                            
+                            if n.get("kind") == "typeConversion":
+                                is_ext = False
+
+                            if is_ext:
+                                src_parts = n.get("src", "").split(":")
+                                if src_parts:
+                                    offset = int(src_parts[0])
+                                    external_calls.append((offset, _get_line_number(source, offset)))
+
+                        # Find assignments to state variables
+                        if n.get("nodeType") == "Assignment":
+                            left = n.get("leftHandSide", {})
+                            var_name = left.get("name", "")
+                            if not var_name:
+                                def get_id_name(inner_n: dict[str, Any]) -> str:
+                                    if inner_n.get("nodeType") == "Identifier":
+                                        return inner_n.get("name", "")
+                                    elif inner_n.get("nodeType") == "MemberAccess":
+                                        return get_id_name(inner_n.get("expression", {}))
+                                    elif inner_n.get("nodeType") == "IndexAccess":
+                                        return get_id_name(inner_n.get("baseExpression", {}))
+                                    return ""
+                                var_name = get_id_name(left)
+                            
+                            if var_name in state_vars:
+                                src_parts = n.get("src", "").split(":")
+                                if src_parts:
+                                    offset = int(src_parts[0])
+                                    state_writes.append((offset, _get_line_number(source, offset), var_name))
+
+                        # Find unary operations changing state variables (e.g., ++, --)
+                        elif n.get("nodeType") == "UnaryOperation":
+                            op = n.get("operator", "")
+                            if op in ("++", "--"):
+                                sub_expr = n.get("subExpression", {})
+                                var_name = sub_expr.get("name", "")
+                                if not var_name and sub_expr.get("nodeType") == "IndexAccess":
+                                    def get_id_name(inner_n: dict[str, Any]) -> str:
+                                        if inner_n.get("nodeType") == "Identifier":
+                                            return inner_n.get("name", "")
+                                        elif inner_n.get("nodeType") == "IndexAccess":
+                                            return get_id_name(inner_n.get("baseExpression", {}))
+                                        return ""
+                                    var_name = get_id_name(sub_expr)
+                                
+                                if var_name in state_vars:
+                                    src_parts = n.get("src", "").split(":")
+                                    if src_parts:
+                                        offset = int(src_parts[0])
+                                        state_writes.append((offset, _get_line_number(source, offset), var_name))
+
+                    walk_ast(body, find_calls_and_writes)
+
+                    # Trigger finding if a state write offset exceeds an external call offset
+                    for call_offset, call_line in external_calls:
+                        for write_offset, write_line, var_name in state_writes:
+                            if write_offset > call_offset:
+                                findings.append(
+                                    Finding(
+                                        title=f"CEI Violation in {func_name}() [AST]",
+                                        description=(
+                                            f"State variable `{var_name}` is updated at line {write_line} "
+                                            f"after an external call at line {call_line} in `{func_name}()`. This violates the "
+                                            "Check-Effects-Interactions pattern and may allow reentrancy attacks.\n\n"
+                                            "**Fix:** Move all state changes before external calls."
+                                        ),
+                                        severity=Severity.CRITICAL,
+                                        confidence=Confidence.HIGH,
+                                        category=FindingCategory.REENTRANCY,
+                                        source=self.name,
+                                        detector_name="cei-violation",
+                                        locations=[
+                                            SourceLocation(
+                                                file=filename,
+                                                start_line=write_line,
+                                                end_line=write_line,
+                                                function=func_name,
+                                            )
+                                        ],
+                                        metadata={"variable": var_name, "call_line": call_line},
+                                    )
+                                )
+                                break
+                        else:
+                            continue
+                        break
 
         return findings
 
