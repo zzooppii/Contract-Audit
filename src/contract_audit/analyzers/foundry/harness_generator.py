@@ -59,6 +59,26 @@ contract MockOracle {
 
 # Keyword hints used by _build_constructor_setup
 _TOKEN_HINTS = {"token", "asset", "underlying", "weth", "usdc", "dai", "reward", "staking", "erc20"}
+
+
+def _extract_pragma(source: str) -> str:
+    """Extract solidity compiler version from source code."""
+    match = re.search(r'pragma\s+solidity\s+([^;]+);', source)
+    return match.group(1).strip() if match else "^0.8.0"
+
+
+def _is_pre_080(pragma_str: str) -> bool:
+    """Check if the extracted compiler version is older than 0.8.0."""
+    clean = re.sub(r'[^\d.]', '', pragma_str)
+    parts = clean.split('.')
+    if len(parts) >= 2:
+        try:
+            major = int(parts[0])
+            minor = int(parts[1])
+            return major == 0 and minor < 8
+        except ValueError:
+            pass
+    return False
 _ORACLE_HINTS = {"oracle", "feed", "price", "aggregator", "chainlink"}
 _TIME_HINTS = {"time", "delay", "period", "duration", "lock", "expir"}
 _AMOUNT_HINTS = {"amount", "supply", "total", "cap", "limit", "balance"}
@@ -252,6 +272,16 @@ def generate_fuzz_harness(
     test_file = output_dir / f"Fuzz{contract_name}.t.sol"
 
     import_path = source_path if source_path else f"src/{contract_name}.sol"
+    
+    pragma_version = "^0.8.0"
+    if source_path:
+        try:
+            p = Path(source_path)
+            if p.exists():
+                pragma_version = _extract_pragma(p.read_text(errors='ignore'))
+        except Exception:
+            pass
+
     try:
         mock_code, setup_body = _build_constructor_setup(contract_name, constructor_abi)
     except ValueError as e:
@@ -280,7 +310,7 @@ def generate_fuzz_harness(
     mock_section = f"\n{mock_code}\n" if mock_code else ""
 
     content = f"""// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity {pragma_version};
 
 import "forge-std/Test.sol";
 import "{import_path}";
@@ -440,6 +470,14 @@ def generate_targeted_harness(
             contract_name, safe_fn, func_name, params,
             param_decls, call_args, finding, import_path, mock_code, setup_body,
         )
+
+    pragma_version = _extract_pragma(source)
+    is_pre_08 = _is_pre_080(pragma_version)
+
+    content = content.replace("pragma solidity ^0.8.0;", f"pragma solidity {pragma_version};")
+    if is_pre_08:
+        content = content.replace("type(uint256).max", "uint256(-1)")
+        content = content.replace("type(uint128).max", "uint128(-1)")
 
     test_file.write_text(content)
     return test_file
