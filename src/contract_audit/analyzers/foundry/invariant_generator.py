@@ -121,7 +121,7 @@ def generate_invariant_tests(
     Returns:
         Path to the generated test file
     """
-    from .harness_generator import _build_constructor_setup
+    from .harness_generator import _build_constructor_setup, _extract_pragma, _is_pre_080
 
     output_dir.mkdir(parents=True, exist_ok=True)
     test_file = output_dir / f"Invariant{contract_name}.t.sol"
@@ -199,6 +199,14 @@ contract Invariant{contract_name}Test is Test {{
 {test_bodies}
 }}
 """
+    pragma_version = _extract_pragma(source)
+    is_pre_08 = _is_pre_080(pragma_version)
+
+    content = content.replace("pragma solidity ^0.8.0;", f"pragma solidity {pragma_version};")
+    if is_pre_08:
+        content = content.replace("type(uint256).max", "uint256(-1)")
+        content = content.replace("type(uint128).max", "uint128(-1)")
+
     test_file.write_text(content)
     return test_file
 
