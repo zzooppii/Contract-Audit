@@ -61,6 +61,9 @@ class CrossContractDetector:
         findings.extend(self._check_cross_contract_reentrancy(
             call_graph_builder, call_graph, context
         ))
+        findings.extend(self._check_cross_contract_read_only_reentrancy(
+            call_graph, context
+        ))
         findings.extend(self._check_function_shadowing(
             inheritance_map, context
         ))
@@ -69,6 +72,197 @@ class CrossContractDetector:
         ))
 
         logger.info(f"Cross-contract detector found {len(findings)} findings")
+        return findings
+
+    def _check_cross_contract_read_only_reentrancy(
+        self,
+        call_graph: dict[str, list[tuple[str, str]]],
+        context: AuditContext,
+    ) -> list[Finding]:
+        """Detect cross-contract read-only reentrancy vulnerabilities."""
+        findings: list[Finding] = []
+
+        for caller_contract, calls in call_graph.items():
+            caller_file = self._find_contract_file(caller_contract, context)
+            if not caller_file:
+                continue
+
+            for callee_contract, callee_function in calls:
+                callee_file = self._find_contract_file(callee_contract, context)
+                if not callee_file or caller_contract == callee_contract:
+                    continue
+
+                callee_src = context.contract_sources[callee_file]
+                
+                # Check if view or pure function
+                fn_pattern = rf'\bfunction\s+{re.escape(callee_function)}\s*\([^)]*\)[^{{]*\b(view|pure)\b'
+                if not re.search(fn_pattern, callee_src):
+                    continue
+
+                # Parse function body
+                body_match = re.search(rf'\bfunction\s+{re.escape(callee_function)}\s*\([^)]*\)[^{{]*\{{', callee_src)
+                if not body_match:
+                    continue
+                
+                start_pos = body_match.end()
+                depth = 1
+                pos = start_pos
+                while pos < len(callee_src) and depth > 0:
+                    if callee_src[pos] == '{':
+                        depth += 1
+                    elif callee_src[pos] == '}':
+                        depth -= 1
+                    pos += 1
+                fn_body = callee_src[start_pos:pos - 1]
+
+                # Identify referenced state variables
+                referenced_vars = set(re.findall(r'\b([a-zA-Z_]\w*)\b', fn_body))
+                ignored_keywords = {
+                    "return", "view", "pure", "public", "external", "internal", "private",
+                    "constant", "override", "returns", "memory", "calldata", "storage",
+                    "msg", "sender", "value", "tx", "origin", "block", "timestamp", "number",
+                    "true", "false", "uint", "uint256", "int", "int256", "address", "bool",
+                    "bytes", "string", "mapping"
+                }
+                referenced_vars = referenced_vars - ignored_keywords
+                if not referenced_vars:
+                    continue
+
+                has_read_only_reentrancy_risk = False
+                trigger_var = ""
+                trigger_func = ""
+
+                # Try AST analysis first
+                callee_ast = context.ast_trees.get(callee_file) if context.ast_trees else None
+                if callee_ast:
+                    from ..analyzers.ast_parser.visitors import walk_ast
+                    functions_nodes = []
+                    def collect_funcs(node):
+                        if node.get("nodeType") == "FunctionDefinition":
+                            functions_nodes.append(node)
+                    walk_ast(callee_ast, collect_funcs)
+
+                    for func_node in functions_nodes:
+                        stateMutability = func_node.get("stateMutability", "")
+                        if stateMutability in ("view", "pure"):
+                            continue
+
+                        external_calls = []
+                        assignments = []
+
+                        def collect_elements(node):
+                            if node.get("nodeType") == "FunctionCall":
+                                expr = node.get("expression", {})
+                                if expr.get("nodeType") == "MemberAccess" and expr.get("memberName") in ("call", "transfer", "send"):
+                                    external_calls.append(node)
+                            elif node.get("nodeType") in ("Assignment", "UnaryOperation"):
+                                if node.get("nodeType") == "Assignment":
+                                    lhs = node.get("leftHandSide", {})
+                                else:
+                                    lhs = node.get("subExpression", {})
+                                
+                                def collect_identifiers(n, target_list):
+                                    if n.get("nodeType") == "Identifier":
+                                        target_list.append(n)
+                                collect_identifiers(lhs, assignments)
+                                if lhs.get("nodeType") in ("IndexAccess", "MemberAccess"):
+                                    def collect_inner(inner_node):
+                                        if inner_node.get("nodeType") == "Identifier":
+                                            assignments.append(inner_node)
+                                    walk_ast(lhs, collect_inner)
+
+                        walk_ast(func_node, collect_elements)
+
+                        for call in external_calls:
+                            call_offset = int(call.get("src", "0:0").split(":")[0])
+                            for assign in assignments:
+                                assign_offset = int(assign.get("src", "0:0").split(":")[0])
+                                assign_name = assign.get("name", "")
+                                if assign_offset > call_offset and assign_name in referenced_vars:
+                                    has_read_only_reentrancy_risk = True
+                                    trigger_var = assign_name
+                                    trigger_func = func_node.get("name", "unknown")
+                                    break
+                            if has_read_only_reentrancy_risk:
+                                break
+                        if has_read_only_reentrancy_risk:
+                            break
+
+                else:
+                    # Regex Fallback
+                    for match in re.finditer(r'\bfunction\s+(\w+)\s*\(', callee_src):
+                        f_name = match.group(1)
+                        if f_name == callee_function:
+                            continue
+                        
+                        body_m = re.search(rf'\bfunction\s+{re.escape(f_name)}\s*\([^)]*\)[^{{]*\{{', callee_src)
+                        if not body_m:
+                            continue
+                        s_pos = body_m.end()
+                        dep = 1
+                        p = s_pos
+                        while p < len(callee_src) and dep > 0:
+                            if callee_src[p] == '{':
+                                dep += 1
+                            elif callee_src[p] == '}':
+                                dep -= 1
+                            p += 1
+                        w_body = callee_src[s_pos:p - 1]
+                        
+                        if "view" in callee_src[body_m.start():s_pos] or "pure" in callee_src[body_m.start():s_pos]:
+                            continue
+                        
+                        call_match = re.search(r'\.(call|transfer|send)\s*\(', w_body)
+                        if call_match:
+                            post_call_body = w_body[call_match.end():]
+                            for var in referenced_vars:
+                                update_pattern = rf'\b{re.escape(var)}\b.*(=|\+=|-=)'
+                                if re.search(update_pattern, post_call_body):
+                                    has_read_only_reentrancy_risk = True
+                                    trigger_var = var
+                                    trigger_func = f_name
+                                    break
+                        if has_read_only_reentrancy_risk:
+                            break
+
+                if has_read_only_reentrancy_risk:
+                    findings.append(
+                        Finding(
+                            title=f"Cross-Contract Read-Only Reentrancy Risk on {callee_contract}.{callee_function}",
+                            description=(
+                                f"Contract `{caller_contract}` queries `{callee_contract}.{callee_function}()` "
+                                f"which reads state variable `{trigger_var}`. However, `{callee_contract}` "
+                                f"updates `{trigger_var}` after an external call within its `{trigger_func}()` "
+                                f"function (CEI violation).\n\n"
+                                f"During the external call in `{callee_contract}.{trigger_func}()`, an attacker "
+                                f"can re-enter `{caller_contract}` and execute actions while `{callee_contract}.{callee_function}()` "
+                                f"returns a stale/manipulated value of `{trigger_var}`.\n\n"
+                                f"**Fix:** Apply `nonReentrant` guards on both the state-changing `{trigger_func}()` "
+                                f"and the view function `{callee_function}()` (if using custom lock checks), or ensure "
+                                f"checks-effects-interactions is strictly followed."
+                            ),
+                            severity=Severity.HIGH,
+                            confidence=Confidence.MEDIUM,
+                            category=FindingCategory.REENTRANCY,
+                            source=self.name,
+                            detector_name="cross-contract-read-only-reentrancy",
+                            locations=[
+                                SourceLocation(
+                                    file=caller_file,
+                                    start_line=1,
+                                    end_line=1,
+                                    contract=caller_contract,
+                                )
+                            ],
+                            metadata={
+                                "vulnerable_contract": callee_contract,
+                                "view_function": callee_function,
+                                "state_changing_function": trigger_func,
+                                "variable": trigger_var
+                            }
+                        )
+                    )
+
         return findings
 
     def _check_cross_contract_reentrancy(
