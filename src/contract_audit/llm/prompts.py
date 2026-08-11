@@ -126,6 +126,67 @@ Write a 2-3 paragraph executive summary covering:
 2. Most critical issues and their business impact
 3. Recommended immediate actions
 """,
+    "triage_attacker.j2": """You are an offensive smart contract security researcher.
+Explain why the following finding is a valid and exploitable vulnerability.
+Highlight the exact attack path and the impact if a hacker exploits it.
+
+Finding: {{ finding.title }}
+Severity: {{ finding.severity.value }}
+Detector: {{ finding.detector_name }}
+Description: {{ finding.description }}
+
+{% if source_snippet %}
+Relevant code:
+```solidity
+{{ source_snippet }}
+```
+{% endif %}
+
+Provide a concise argument for why this is a TRUE positive.
+""",
+    "triage_defender.j2": """You are a defensive smart contract auditor.
+Argue why the following finding is a FALSE positive or has zero real-world exploitability.
+Provide scenarios where the code is actually safe or reasons why the detector's logic is mistaken.
+
+Finding: {{ finding.title }}
+Severity: {{ finding.severity.value }}
+Detector: {{ finding.detector_name }}
+Description: {{ finding.description }}
+
+{% if source_snippet %}
+Relevant code:
+```solidity
+{{ source_snippet }}
+```
+{% endif %}
+
+Provide a concise argument for why this is a FALSE positive.
+""",
+    "triage_referee.j2": """You are an expert referee auditor reviewing a contested security finding.
+You are presented with arguments from both an Attacker (who says this is a real vulnerability)
+and a Defender (who says this is a false positive).
+
+Finding: {{ finding.title }}
+Severity: {{ finding.severity.value }}
+Detector: {{ finding.detector_name }}
+Description: {{ finding.description }}
+
+{% if source_snippet %}
+Relevant code:
+```solidity
+{{ source_snippet }}
+```
+{% endif %}
+
+Attacker's Argument:
+{{ attacker_argument }}
+
+Defender's Argument:
+{{ defender_argument }}
+
+Decide whether the finding is a TRUE positive or a FALSE positive.
+Respond with JSON: {"is_false_positive": true/false, "reason": "final explanation"}
+""",
 }
 
 
