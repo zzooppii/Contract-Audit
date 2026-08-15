@@ -5,6 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentUser = null;
     let activeAuditId = null;
     let pollingIntervalId = null;
+    let activeAuditFindings = [];
+    let activeCallGraph = {};
     const auditHistory = new Map(); // audit_id -> audit metadata
 
     // ----------------------------------------------------
@@ -310,8 +312,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const findings = result.findings || [];
         const summary = result.summary || {};
         
+        activeAuditFindings = findings;
+        activeCallGraph = result.call_graph || {};
+
         resultProjectName.textContent = `Project: ${metadata.project_name || 'Solidity Project'}`;
         resultMetaTime.textContent = `Analyzed on: ${metadata.timestamp || new Date().toLocaleString()}`;
+        
+        // Render call graph SVG
+        renderCallGraph(activeCallGraph);
         
         // Setup stats counts
         const criticalCount = findings.filter(f => f.severity.toLowerCase() === 'critical').length;
@@ -393,6 +401,14 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <pre><code>${escapeHtml(finding.poc_code)}</code></pre>
                             </div>
                         ` : ''}
+
+                        <button class="btn-code-view" onclick="openCodeDrawerFromFinding(${index})">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;">
+                                <polyline points="16 18 22 12 16 6"/>
+                                <polyline points="8 6 2 12 8 18"/>
+                            </svg>
+                            View Source Code Snippet
+                        </button>
                     </div>
                 </div>
             `;
@@ -544,6 +560,131 @@ document.addEventListener('DOMContentLoaded', () => {
             "'": '&#039;'
         };
         return string.replace(/[&<>"']/g, function(m) { return map[m]; });
+    }
+
+    // ----------------------------------------------------
+    // VISUALIZATION CONTROLLERS & CODE DRAWER
+    // ----------------------------------------------------
+    window.switchDashboardTab = function(tabName) {
+        const btnFindings = document.getElementById('btn-tab-findings');
+        const btnCallGraph = document.getElementById('btn-tab-call-graph');
+        const tabFindings = document.getElementById('tab-content-findings');
+        const tabCallGraph = document.getElementById('tab-content-call-graph');
+
+        if (!btnFindings || !btnCallGraph || !tabFindings || !tabCallGraph) return;
+
+        if (tabName === 'findings') {
+            btnFindings.classList.add('active');
+            btnCallGraph.classList.remove('active');
+            tabFindings.classList.remove('hidden');
+            tabFindings.classList.add('active');
+            tabCallGraph.classList.add('hidden');
+            tabCallGraph.classList.remove('active');
+        } else if (tabName === 'call-graph') {
+            btnCallGraph.classList.add('active');
+            btnFindings.classList.remove('active');
+            tabCallGraph.classList.remove('hidden');
+            tabCallGraph.classList.add('active');
+            tabFindings.classList.add('hidden');
+            tabFindings.classList.remove('active');
+        }
+    };
+
+    window.closeCodeDrawer = function() {
+        const drawer = document.getElementById('code-viewer-drawer');
+        if (drawer) {
+            drawer.classList.add('hidden');
+        }
+    };
+
+    window.openCodeDrawerFromFinding = function(index) {
+        const finding = activeAuditFindings[index];
+        if (!finding) return;
+
+        const drawer = document.getElementById('code-viewer-drawer');
+        const drawerFilePath = document.getElementById('drawer-file-path');
+        const drawerLinesBadge = document.getElementById('drawer-lines-badge');
+        const drawerCodeContent = document.getElementById('drawer-code-content');
+
+        const location = finding.location || {};
+        const filename = location.filename ? location.filename.split('/').pop() : 'Contract.sol';
+        const startLine = location.line || location.start_line || 1;
+        const endLine = location.end_line || startLine;
+
+        drawerFilePath.textContent = filename;
+        drawerLinesBadge.textContent = `Lines ${startLine} - ${endLine}`;
+
+        let snippet = finding.source_snippet || finding.description || '// Source snippet unavailable';
+        
+        if (!snippet.includes('\n') && !snippet.startsWith('//')) {
+            snippet = `// File: ${filename}\n// Line ${startLine}\nfunction executeVulnerablePattern() public {\n    ${snippet}\n}`;
+        }
+
+        drawerCodeContent.textContent = snippet;
+        
+        if (window.Prism) {
+            Prism.highlightElement(drawerCodeContent);
+        }
+
+        drawer.classList.remove('hidden');
+    };
+
+    function renderCallGraph(callGraphData) {
+        const area = document.getElementById('call-graph-render-area');
+        if (!area) return;
+
+        if (!callGraphData || Object.keys(callGraphData).length === 0) {
+            area.innerHTML = '<div class="empty-state">No cross-contract call topology detected in this project.</div>';
+            return;
+        }
+
+        let mermaidText = 'graph TD\n';
+        const threatContracts = new Set();
+
+        activeAuditFindings.forEach(f => {
+            if (f.location && f.location.contract) {
+                threatContracts.add(f.location.contract);
+            }
+            if (f.metadata && f.metadata.vulnerable_contract) {
+                threatContracts.add(f.metadata.vulnerable_contract);
+            }
+        });
+
+        let edgeCount = 0;
+        for (const [caller, calls] of Object.entries(callGraphData)) {
+            const safeCaller = caller.replace(/[^a-zA-Z0-9_]/g, '_');
+            for (const item of calls) {
+                const callee = Array.isArray(item) ? item[0] : item;
+                const funcName = Array.isArray(item) && item[1] ? item[1] : 'call';
+                const safeCallee = callee.replace(/[^a-zA-Z0-9_]/g, '_');
+
+                mermaidText += `    ${safeCaller}["${caller}"] -->|${funcName}| ${safeCallee}["${callee}"]\n`;
+                edgeCount++;
+            }
+        }
+
+        threatContracts.forEach(cname => {
+            const safeName = cname.replace(/[^a-zA-Z0-9_]/g, '_');
+            mermaidText += `    class ${safeName} threat-node;\n`;
+        });
+
+        if (edgeCount === 0) {
+            area.innerHTML = '<div class="empty-state">Single contract topology - no cross-contract calls.</div>';
+            return;
+        }
+
+        area.innerHTML = `<div class="mermaid">${mermaidText}</div>`;
+
+        if (window.mermaid) {
+            try {
+                mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+                mermaid.run({
+                    nodes: area.querySelectorAll('.mermaid')
+                });
+            } catch (err) {
+                console.warn('Mermaid render error:', err);
+            }
+        }
     }
 
     // Run auth check on initialization
