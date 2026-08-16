@@ -1039,3 +1039,208 @@ code {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* ----------------------------------------------------
+   DASHBOARD NAVIGATION TABS & VISUALIZERS
+   ---------------------------------------------------- */
+.view-tabs-bar {
+    display: flex;
+    gap: 12px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 12px;
+    margin-bottom: 15px;
+}
+
+.tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.25s ease;
+}
+
+.tab-btn:hover {
+    color: var(--text-color);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.tab-btn.active {
+    color: var(--primary);
+    background: rgba(99, 102, 241, 0.15);
+    border-color: rgba(99, 102, 241, 0.4);
+    box-shadow: 0 0 15px rgba(99, 102, 241, 0.25);
+}
+
+.tab-icon {
+    width: 16px;
+    height: 16px;
+}
+
+.tab-desc {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 15px;
+}
+
+/* ----------------------------------------------------
+   MERMAID CALL GRAPH CONTAINER & THREAT PULSE
+   ---------------------------------------------------- */
+.mermaid-graph-box {
+    width: 100%;
+    min-height: 380px;
+    background: rgba(15, 23, 42, 0.6);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 20px;
+    overflow-x: auto;
+}
+
+.mermaid-graph-box svg {
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+    display: block;
+}
+
+.mermaid-graph-box .node rect, 
+.mermaid-graph-box .node circle, 
+.mermaid-graph-box .node polygon {
+    stroke-width: 2px !important;
+    rx: 8px;
+    ry: 8px;
+}
+
+.mermaid-graph-box .threat-node rect,
+.mermaid-graph-box .threat-node polygon {
+    stroke: #ef4444 !important;
+    fill: rgba(239, 68, 68, 0.2) !important;
+    animation: threatPulse 2s infinite ease-in-out;
+}
+
+@keyframes threatPulse {
+    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+/* ----------------------------------------------------
+   SLIDING CODE VIEWER DRAWER & SYNTAX HIGHLIGHTING
+   ---------------------------------------------------- */
+.code-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 600px;
+    max-width: 90vw;
+    height: 100vh;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.code-drawer.hidden {
+    transform: translateX(100%);
+    display: flex !important;
+    pointer-events: none;
+}
+
+.code-drawer-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(30, 41, 59, 0.5);
+}
+
+.drawer-title-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.drawer-file-path {
+    font-family: monospace;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--primary);
+}
+
+.btn-close-drawer {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.5rem;
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.2s ease;
+}
+
+.btn-close-drawer:hover {
+    color: #ef4444;
+}
+
+.code-drawer-body {
+    flex: 1;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.code-drawer-body pre {
+    margin: 0;
+    padding: 16px;
+    border-radius: 8px;
+    background: #0d1117 !important;
+    font-family: 'Fira Code', Consolas, Monaco, monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+
+.code-line-vulnerable {
+    background: rgba(239, 68, 68, 0.25) !important;
+    border-left: 4px solid #ef4444;
+    display: block;
+    margin: 0 -16px;
+    padding: 2px 16px;
+    animation: lineGlow 2s infinite ease-in-out;
+}
+
+@keyframes lineGlow {
+    0%, 100% { background: rgba(239, 68, 68, 0.25); }
+    50% { background: rgba(239, 68, 68, 0.45); }
+}
+
+.btn-code-view {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    padding: 6px 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-code-view:hover {
+    background: rgba(56, 189, 248, 0.25);
+    border-color: #38bdf8;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+}
