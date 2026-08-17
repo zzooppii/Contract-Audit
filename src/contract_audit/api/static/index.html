@@ -10,6 +10,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Main Style Sheet -->
     <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Prism.js Dark Syntax Highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-solidity.min.js" fallback="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-clike.min.js"></script>
+    <!-- Mermaid.js for Dynamic Call Graph Rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 </head>
 <body>
     <!-- BACKGROUND EFFECTS -->
@@ -259,11 +265,58 @@
                             </div>
                         </div>
 
-                        <!-- ACCORDION SECTION -->
-                        <div class="findings-section">
-                            <h3 class="subsection-title">Vulnerability Findings Details</h3>
-                            <div id="findings-accordion-list" class="accordion-list">
-                                <!-- Accordion items dynamically loaded -->
+                        <!-- NAVIGATION TABS -->
+                        <div class="view-tabs-bar margin-top-20">
+                            <button class="tab-btn active" id="btn-tab-findings" onclick="switchDashboardTab('findings')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon">
+                                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                </svg>
+                                Security Findings
+                            </button>
+                            <button class="tab-btn" id="btn-tab-call-graph" onclick="switchDashboardTab('call-graph')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="tab-icon">
+                                    <circle cx="18" cy="5" r="3"/>
+                                    <circle cx="6" cy="12" r="3"/>
+                                    <circle cx="18" cy="19" r="3"/>
+                                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                                </svg>
+                                Cross-Contract Call Graph
+                            </button>
+                        </div>
+
+                        <!-- TAB CONTENT 1: FINDINGS ACCORDION LIST -->
+                        <div id="tab-content-findings" class="tab-content active">
+                            <div class="findings-section">
+                                <h3 class="subsection-title">Vulnerability Findings Details</h3>
+                                <div id="findings-accordion-list" class="accordion-list">
+                                    <!-- Accordion items dynamically loaded -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TAB CONTENT 2: MERMAID CALL GRAPH VISUALIZER -->
+                        <div id="tab-content-call-graph" class="tab-content hidden">
+                            <div class="call-graph-section glass-panel card-padding margin-top-15">
+                                <h3 class="subsection-title">Cross-Contract Call Topology & Threat Graph</h3>
+                                <p class="tab-desc">Visual representation of contract interaction cycles and call flows parsed during analysis.</p>
+                                <div id="call-graph-render-area" class="mermaid-graph-box flex-center-content">
+                                    <div class="empty-state">No call graph topology detected for single contracts.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- SLIDING CODE VIEWER DRAWER -->
+                        <div id="code-viewer-drawer" class="code-drawer hidden">
+                            <div class="code-drawer-header">
+                                <div class="drawer-title-group">
+                                    <span id="drawer-file-path" class="drawer-file-path">Contract.sol</span>
+                                    <span id="drawer-lines-badge" class="badge badge-warning">Lines 12 - 15</span>
+                                </div>
+                                <button class="btn-close-drawer" onclick="closeCodeDrawer()">&times;</button>
+                            </div>
+                            <div class="code-drawer-body">
+                                <pre class="line-numbers"><code id="drawer-code-content" class="language-solidity"></code></pre>
                             </div>
                         </div>
                     </div>
