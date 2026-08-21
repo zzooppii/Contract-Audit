@@ -111,6 +111,13 @@ document.addEventListener('DOMContentLoaded', () => {
             formats: formats
         };
 
+        const enableLiveWatch = formData.get('enable_live_watch') === 'on';
+        if (enableLiveWatch) {
+            startLiveWatchSession(projectPath);
+        } else {
+            stopLiveWatchSession();
+        }
+
         // Set Loading state on Button
         setButtonLoading(true);
 
@@ -684,6 +691,84 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (err) {
                 console.warn('Mermaid render error:', err);
             }
+        }
+    }
+
+    // ----------------------------------------------------
+    // LIVE FILE WATCHER SSE SESSION CONTROLLER
+    // ----------------------------------------------------
+    let liveWatchSessionId = null;
+    let liveWatchEventSource = null;
+    const liveIndicatorBadge = document.getElementById('live-indicator-badge');
+
+    async function startLiveWatchSession(projectPath) {
+        stopLiveWatchSession();
+        try {
+            const response = await fetch('/audit/watch/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_path: projectPath }),
+            });
+
+            if (!response.ok) {
+                console.warn('Could not start live watch session');
+                return;
+            }
+
+            const data = await response.json();
+            liveWatchSessionId = data.session_id;
+
+            if (liveIndicatorBadge) {
+                liveIndicatorBadge.classList.remove('hidden');
+            }
+
+            // Establish EventSource SSE connection
+            liveWatchEventSource = new EventSource(`/audit/watch/stream/${liveWatchSessionId}`);
+            
+            liveWatchEventSource.addEventListener('live_update', (event) => {
+                try {
+                    const updateData = JSON.parse(event.data);
+                    if (updateData.result) {
+                        console.log('Live Watcher update received:', updateData);
+                        renderResultCard(updateData.audit_id, updateData.result);
+                        addOrUpdateHistoryItem({
+                            id: updateData.audit_id,
+                            status: 'completed',
+                            project_path: projectPath,
+                            timestamp: new Date().toLocaleTimeString()
+                        });
+                    }
+                } catch (err) {
+                    console.error('Error parsing SSE live update:', err);
+                }
+            });
+
+            liveWatchEventSource.onerror = (err) => {
+                console.warn('SSE stream connection error:', err);
+            };
+
+        } catch (err) {
+            console.error('Failed to start Live Watch Session:', err);
+        }
+    }
+
+    async function stopLiveWatchSession() {
+        if (liveWatchEventSource) {
+            liveWatchEventSource.close();
+            liveWatchEventSource = null;
+        }
+        if (liveWatchSessionId) {
+            try {
+                await fetch(`/audit/watch/stop?session_id=${encodeURIComponent(liveWatchSessionId)}`, {
+                    method: 'POST'
+                });
+            } catch (err) {
+                console.warn('Error stopping watch session:', err);
+            }
+            liveWatchSessionId = null;
+        }
+        if (liveIndicatorBadge) {
+            liveIndicatorBadge.classList.add('hidden');
         }
     }
 
